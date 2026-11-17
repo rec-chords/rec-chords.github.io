@@ -1,6 +1,6 @@
-# Fredon — mise en route
+# Rec. — mise en route
 
-Fredon est ton carnet de vocaux musicaux : tu enregistres, puis tu ranges chaque prise
+Rec. est ton carnet de vocaux musicaux : tu enregistres, puis tu ranges chaque prise
 dans une **idée** (nouvelle ou suite d'une idée existante). Tu peux glisser les prises d'un bloc à l'autre.
 
 ## Utilisation

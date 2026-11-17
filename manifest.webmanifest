@@ -1,6 +1,6 @@
 {
-  "name": "Fredon — idées musicales",
-  "short_name": "Fredon",
+  "name": "Rec. — idées musicales",
+  "short_name": "Rec.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

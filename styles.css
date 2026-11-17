@@ -50,7 +50,7 @@ input, textarea { font: inherit; color: inherit; }
   padding: calc(16px + env(safe-area-inset-top)) 24px 14px;
   border-bottom: 1px solid var(--line);
 }
-.brand { font-weight: 600; font-size: 17px; letter-spacing: -.01em; }
+.brand { font-weight: 700; font-size: 20px; letter-spacing: -.02em; }
 .brand i { font-style: normal; color: var(--accent); }
 .search { flex: 1; min-width: 0; }
 .search input {
