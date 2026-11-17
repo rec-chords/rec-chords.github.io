@@ -23,6 +23,8 @@ Tant que la synchro n'est pas configurée, l'appli est en **mode essai** : les v
 
 ---
 
+> **Adresse de l'appli :** <https://neorama-cleansheets.github.io/rec/>
+>
 > **État actuel :** les étapes 1 et 3 sont déjà faites. Le projet Supabase `fredon` existe, les tables sont installées,
 > l'utilisateur est créé et l'appli pointe dessus (adresse et clé publique dans `store.js`). Il reste l'étape 2 (mise en ligne)
 > et l'étape 4 (installation sur le téléphone). Sur un nouvel appareil, il suffit de saisir l'e-mail et le mot de passe.
