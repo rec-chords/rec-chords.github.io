@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Fredon</title>
+  <meta name="theme-color" content="#0a0a0a">
+  <script>try { if (localStorage.getItem("fredon.theme") === "light") document.documentElement.dataset.theme = "light"; } catch (e) {}</script>
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Fredon">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400&family=Hanken+Grotesk:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">fredon<i>.</i></div>
+    <div class="search"><input id="search" type="search" placeholder="Chercher" autocomplete="off" aria-label="Chercher une idée"></div>
+    <button class="txt-btn" id="importBtn">importer</button>
+    <button class="txt-btn" id="settingsBtn">réglages</button>
+    <input type="file" id="importInput" accept="audio/*" multiple hidden>
+  </header>
+
+  <section class="hero" id="hero"></section>
+  <nav class="filters" id="filters"></nav>
+  <div class="status" id="status" hidden></div>
+
+  <main id="board" class="board"></main>
+
+  <div class="empty" id="empty" hidden>
+    <p class="empty-title">Rien pour l'instant.</p>
+    <p>Enregistre une première idée avec la barre du bas. Tu la rangeras juste après.</p>
+  </div>
+
+  <button id="recBtn" class="rec-btn" aria-label="Enregistrer une idée">
+    <span class="rec-dot"></span><span>Enregistrer</span><span class="kbd">espace</span>
+  </button>
+
+  <!-- Enregistrement en cours -->
+  <div class="overlay" id="recOverlay" hidden>
+    <div class="rec-panel">
+      <div class="rec-top"><span class="rec-live">rec</span><button class="txt-btn" id="recCancel">annuler</button></div>
+      <p class="rec-time" id="recTime">0:00</p>
+      <p class="rec-target" id="recTarget"></p>
+      <canvas id="levels" width="1800" height="180"></canvas>
+    </div>
+    <button class="stop-bar" id="recStop" aria-label="Arrêter l'enregistrement">
+      <span class="stop-sq"></span><span>Arrêter</span><span class="kbd">espace</span>
+    </button>
+  </div>
+
+  <!-- Panneau générique (ranger une prise, menus, réglages…) -->
+  <div class="sheet-backdrop" id="sheetBackdrop" hidden>
+    <div class="sheet" id="sheet" role="dialog" aria-modal="true"></div>
+  </div>
+
+  <div class="toast" id="toast" hidden></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+  <script src="store.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
