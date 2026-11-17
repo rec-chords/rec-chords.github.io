@@ -293,3 +293,15 @@ textarea.field { font-size: 17px; font-weight: 400; }
 .seg button.on { font-weight: 600; }
 .empty-title { font-size: 26px; font-weight: 700; }
 .toast { font-size: 15px; padding: 13px 24px; }
+
+/* ---------- Texte attaché à une idée ---------- */
+.lyrics {
+  margin: 14px 0 2px; padding: 2px 0 2px 14px; border-left: 2px solid var(--accent);
+  font-size: 17px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; cursor: pointer;
+  display: -webkit-box; -webkit-line-clamp: 8; -webkit-box-orient: vertical; overflow: hidden;
+}
+.add-take.second { border-top: 0; padding-top: 10px; }
+.sheet:has(.editor) { height: 92dvh; display: flex; flex-direction: column; }
+.editor-head { display: flex; align-items: center; gap: 18px; margin-bottom: 18px; }
+.editor-head .btn { margin-left: auto; padding: 11px 18px; }
+textarea.field.editor { flex: 1; min-height: 160px; margin-top: 16px; font-size: 18px; line-height: 1.55; resize: none; }

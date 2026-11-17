@@ -15,6 +15,7 @@ dans une **idée** (nouvelle ou suite d'une idée existante). Tu peux glisser le
 - **⋯** sur une idée : renommer, étiquettes, notes (tonalité, accords, paroles), favori, fusionner, supprimer.
 - **⋯** sur une prise : renommer, note, déplacer, télécharger, supprimer.
 - **« importer »** (en haut à droite) : charge tes anciens vocaux, ils arrivent dans « À trier ».
+- **Texte** : « + écrire un texte » sous une idée ouvre une page pour tes paroles, accords ou notes. Le texte s'affiche ensuite sous le titre de l'idée ; touche-le pour le modifier. Le bouton « écouter » lance les prises pendant que tu écris.
 - Sur PC, la **barre d'espace** lance et arrête l'enregistrement.
 - **Apparence** : sombre ou clair, dans les réglages.
 

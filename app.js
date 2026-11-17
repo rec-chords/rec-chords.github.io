@@ -184,9 +184,10 @@ function blockHtml(idea, list) {
       <button class="mini-btn" data-action="idea-menu" data-idea="${idea.id}" aria-label="Options de l'idée">${ICONS.more}</button>
     </div>
     <p class="block-sub"><span>${esc(sub)}</span>${tags.map(t => `<span class="tag">#${esc(t)}</span>`).join('')}</p>
-    ${idea.notes ? `<div class="block-notes">${esc(idea.notes)}</div>` : ''}
+    ${idea.notes ? `<div class="lyrics" data-action="text" data-idea="${idea.id}" title="Modifier le texte">${esc(idea.notes)}</div>` : ''}
     <ol class="takes">${list.map((t, i) => takeHtml(t, i, false)).join('')}</ol>
     <button class="add-take" data-action="record-into" data-idea="${idea.id}">+ enregistrer une suite</button>
+    ${idea.notes ? '' : `<button class="add-take second" data-action="text" data-idea="${idea.id}">+ écrire un texte</button>`}
   </section>`;
 }
 
@@ -675,7 +676,7 @@ async function ideaMenu(idea) {
   const v = await actionSheet(ideaTitle(idea), [
     { label: 'Renommer', ico: '✎', value: 'rename' },
     { label: 'Étiquettes', ico: '#', value: 'tags', sub: (idea.tags || []).join(', ') },
-    { label: 'Notes', ico: '¶', value: 'notes', sub: 'Tonalité, accords, paroles…' },
+    { label: idea.notes ? 'Modifier le texte' : 'Écrire un texte', ico: '¶', value: 'notes', sub: 'Paroles, accords, notes' },
     { label: idea.starred ? 'Retirer des favoris' : 'Ajouter aux favoris', ico: '★', value: 'star' },
     { label: 'Fusionner avec une autre idée', ico: '⇄', value: 'merge', sub: 'Déplace toutes ses prises' },
     { label: "Supprimer l'idée", ico: '✕', value: 'delete', cls: 'danger', sub: 'Ses prises retournent dans « À trier »' },
@@ -690,10 +691,7 @@ async function ideaMenu(idea) {
       (sh, close) => sh.querySelectorAll('[data-col]').forEach(b => { b.onclick = () => close(b.dataset.col); }));
       if (c) { idea.color = c; render(); await S.store.saveIdea(idea); }
     }
-    if (v === 'notes') {
-      const n = await promptText('Notes', idea.notes, { multiline: true, placeholder: 'Tonalité, accords, paroles…' });
-      if (n !== null && n !== undefined) { idea.notes = n; await S.store.saveIdea(idea); render(); }
-    }
+    if (v === 'notes') return editText(idea);
     if (v === 'tags') {
       const sel = [...(idea.tags || [])];
       const ok = await openSheet(`<h2>Étiquettes</h2><div class="tag-picker"></div>
@@ -728,6 +726,46 @@ async function ideaMenu(idea) {
       render();
     }
   } catch (e) { fail(e, 'Action impossible'); await reload(); }
+}
+
+// Texte attaché à une idée (paroles, accords, notes). Il n'est jamais perdu :
+// fermer le panneau autrement que par « Annuler » l'enregistre.
+async function editText(idea) {
+  const ids = takesOf(idea.id).map(t => t.id);
+  let draft = idea.notes || '';
+  const v = await openSheet(`
+    <div class="editor-head">
+      <button class="txt-btn" data-x>annuler</button>
+      ${ids.length ? '<button class="txt-btn accent" data-listen>écouter</button>' : ''}
+      <button class="btn primary" data-ok>Enregistrer</button>
+    </div>
+    <h2>Texte</h2>
+    <p class="sub">${esc(ideaTitle(idea))}</p>
+    <textarea class="field editor" placeholder="Paroles, accords, idées…">${esc(draft)}</textarea>`,
+  (sh, close) => {
+    const area = sh.querySelector('.editor');
+    area.oninput = () => { draft = area.value; };
+    if (!draft) setTimeout(() => area.focus(), 80);
+    sh.querySelector('[data-x]').onclick = () => close('cancel');
+    sh.querySelector('[data-ok]').onclick = () => close('ok');
+    const listen = sh.querySelector('[data-listen]');
+    if (listen) {
+      const sync = () => { listen.textContent = ids.includes(S.playing) && !audio.paused ? 'pause' : 'écouter'; };
+      listen.onclick = () => {
+        if (ids.includes(S.playing)) { if (audio.paused) audio.play(); else audio.pause(); }
+        else play(ids[0], ids.slice(1));
+        setTimeout(sync, 300);
+      };
+      sync();
+    }
+  });
+  if (v === 'cancel') return;
+  const text = draft.replace(/\s+$/, '');
+  if (text === (idea.notes || '')) return;
+  idea.notes = text;
+  render();
+  try { await touchIdea(idea); render(); toast('Texte enregistré'); }
+  catch (e) { fail(e, 'Texte non enregistré'); }
 }
 
 async function renameIdea(idea) {
@@ -1128,6 +1166,7 @@ function wireUi() {
     }
     if (a === 'take-menu') takeMenu(takeById(el.dataset.id));
     if (a === 'rename' && idea) renameIdea(idea);
+    if (a === 'text' && idea) editText(idea);
     if (a === 'idea-menu' && idea) ideaMenu(idea);
     if (a === 'record-into' && idea) startRecording(idea.id);
     if (a === 'play-all' && idea) {
