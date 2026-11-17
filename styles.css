@@ -10,6 +10,7 @@
   --accent: #7c6cff;
   --red: #f65454;
   --wave: #4d4d4d;
+  --ghost: #1b1b1b;
   --sans: "Hanken Grotesk", "Segoe UI", system-ui, sans-serif;
   --mono: "DM Mono", ui-monospace, Consolas, monospace;
   color-scheme: dark;
@@ -22,6 +23,7 @@
   --muted: #575757;
   --dim: #8f8f8f;
   --wave: #cfcfcf;
+  --ghost: #eeeeee;
   --accent: #5b46f0;
   color-scheme: light;
 }
@@ -30,7 +32,7 @@
 html, body { margin: 0; }
 html { background: var(--bg); }
 body {
-  background: var(--bg); color: var(--text);
+  background: transparent; color: var(--text);
   font: 17px/1.45 var(--sans);
   min-height: 100dvh;
   padding-bottom: calc(120px + env(safe-area-inset-bottom));
@@ -305,3 +307,20 @@ textarea.field { font-size: 17px; font-weight: 400; }
 .editor-head { display: flex; align-items: center; gap: 18px; margin-bottom: 18px; }
 .editor-head .btn { margin-left: auto; padding: 11px 18px; }
 textarea.field.editor { flex: 1; min-height: 160px; margin-top: 16px; font-size: 18px; line-height: 1.55; resize: none; }
+
+/* ---------- Décor en parallaxe ----------
+   Deux calques fixes derrière le contenu. app.js met à jour --sy (défilement, en px)
+   et --tx / --ty (inclinaison du téléphone ou position de la souris, de -1 à 1). */
+.bg { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; --sy: 0; --tx: 0; --ty: 0; }
+.bg-wave {
+  position: absolute; left: -6%; width: 112%; top: 30vh; height: 46vh; color: var(--ghost);
+  transform: translate3d(calc(var(--tx) * 26px), calc(var(--sy) * -0.32px + var(--ty) * 16px), 0);
+  will-change: transform;
+}
+.bg-word {
+  position: absolute; right: -3vw; top: 52vh; line-height: .8; white-space: nowrap;
+  font: 700 clamp(180px, 46vw, 620px)/.8 var(--sans); letter-spacing: -.06em;
+  color: transparent; -webkit-text-stroke: 1.5px var(--ghost);
+  transform: translate3d(calc(var(--tx) * -44px), calc(var(--sy) * -0.14px + var(--ty) * -26px), 0);
+  will-change: transform;
+}

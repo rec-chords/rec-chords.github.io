@@ -1132,6 +1132,68 @@ async function reload() {
   }
 }
 
+/* ---------------- Décor en parallaxe ---------------- */
+function initParallax() {
+  const bg = document.querySelector('.bg');
+  const wave = document.getElementById('bgWave');
+  if (!bg || !wave) return;
+
+  // Une onde en filets fins, toujours la même (tirage pseudo-aléatoire fixe).
+  const n = 72;
+  let h = 20261117;
+  let d = '';
+  for (let i = 0; i < n; i++) {
+    h = (h * 1664525 + 1013904223) >>> 0;
+    const env = .25 + .75 * Math.abs(Math.sin(i / n * Math.PI * 2.5));
+    const len = 6 + env * (h % 1000) / 1000 * 88;
+    d += `M${i * 10 + 5} ${(100 - len) / 2}v${len}`;
+  }
+  wave.setAttribute('viewBox', `0 0 ${n * 10} 100`);
+  wave.innerHTML = `<path d="${d}" stroke="currentColor" stroke-width="1.6" fill="none" vector-effect="non-scaling-stroke"/>`;
+
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+  const target = { sy: 0, tx: 0, ty: 0 };
+  const cur = { sy: 0, tx: 0, ty: 0 };
+  let raf = 0;
+  const frame = () => {
+    raf = 0;
+    cur.sy = target.sy;
+    cur.tx += (target.tx - cur.tx) * .12; // l'inclinaison est lissée pour éviter les saccades
+    cur.ty += (target.ty - cur.ty) * .12;
+    bg.style.setProperty('--sy', cur.sy.toFixed(1));
+    bg.style.setProperty('--tx', cur.tx.toFixed(3));
+    bg.style.setProperty('--ty', cur.ty.toFixed(3));
+    if (Math.abs(target.tx - cur.tx) > .002 || Math.abs(target.ty - cur.ty) > .002) ask();
+  };
+  const ask = () => { if (!raf) raf = requestAnimationFrame(frame); };
+  const clamp = v => Math.max(-1, Math.min(1, v));
+
+  window.addEventListener('scroll', () => { target.sy = window.scrollY; ask(); }, { passive: true });
+  window.addEventListener('mousemove', e => {
+    target.tx = clamp(e.clientX / innerWidth * 2 - 1);
+    target.ty = clamp(e.clientY / innerHeight * 2 - 1);
+    ask();
+  }, { passive: true });
+
+  const onTilt = e => {
+    if (e.gamma == null || e.beta == null) return;
+    target.tx = clamp(e.gamma / 30);          // gauche / droite
+    target.ty = clamp((e.beta - 45) / 30);    // avant / arrière, autour d'une tenue naturelle
+    ask();
+  };
+  const DOE = window.DeviceOrientationEvent;
+  if (DOE && typeof DOE.requestPermission === 'function') {
+    // iPhone : l'accès aux capteurs se demande après un premier toucher.
+    const once = () => {
+      DOE.requestPermission().then(r => { if (r === 'granted') window.addEventListener('deviceorientation', onTilt); }).catch(() => {});
+    };
+    window.addEventListener('touchend', once, { once: true });
+  } else if (DOE) {
+    window.addEventListener('deviceorientation', onTilt);
+  }
+}
+
 /* ---------------- Événements ---------------- */
 function wireUi() {
   $('#recBtn').onclick = () => startRecording(null);
@@ -1195,6 +1257,7 @@ function wireUi() {
 
 async function boot() {
   setTheme(currentTheme());
+  initParallax();
   wireUi();
   wireDrag();
   const cfg = loadConfig();
