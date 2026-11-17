@@ -568,79 +568,106 @@ function onRecordingStopped() {
   openSaveSheet(result, target);
 }
 
-function openSaveSheet(rec, target) {
-  const url = URL.createObjectURL(rec.blob);
-  const tags = [];
-  const targetIdea = ideaById(target);
-  const recents = recentIdeas().filter(i => i.id !== target).slice(0, 5);
-  const more = S.ideas.length - recents.length - (targetIdea ? 1 : 0);
-  const choice = (dest, ico, label, sub, cls = '', col = '') =>
-    `<button class="choice ${cls}" ${col ? `style="--c:${col}"` : ''} data-dest="${dest}"><span class="ico">${ico}</span><span>${esc(label)}${sub ? `<small>${esc(sub)}</small>` : ''}</span></button>`;
+// Rangement d'une prise qui vient d'être enregistrée.
+// Une seule question par écran : 1) nouvelle idée ou suite ? 2) son nom, ou laquelle.
+async function openSaveSheet(rec, target) {
+  const save = async (dest, name = '', tags = []) => {
+    toast('Envoi…');
+    try { await commitTake(rec, dest, name, tags); return true; }
+    catch (e) { fail(e, 'Enregistrement impossible, réessaie'); return false; }
+  };
 
-  openSheet(`
-    <h2>Où ranger cette prise ?</h2>
-    <p class="sub">Durée : ${fmtDur(rec.duration)}</p>
-    <audio src="${url}" hidden></audio>
-    <button class="txt-btn replay" data-replay>réécouter</button>
-    <label class="label" for="saveName">Nom (facultatif)</label>
-    <input class="field" id="saveName" placeholder="Ex : mélodie du refrain" autocomplete="off">
-    <label class="label">Étiquettes</label>
-    <div class="tag-picker"></div>
-    <div class="choices" style="margin-top:16px">
-      ${targetIdea ? choice(targetIdea.id, '↳', `Suite de « ${ideaTitle(targetIdea)} »`, plural(takesOf(targetIdea.id).length, 'prise'), 'primary') : ''}
-      ${choice('new', '+', 'Nouvelle idée', 'Une idée indépendante', targetIdea ? '' : 'primary')}
-      ${recents.map(i => choice(i.id, '↳', `Suite de « ${ideaTitle(i)} »`, `${plural(takesOf(i.id).length, 'prise')} · ${ago(i.updated_at)}`, '', ideaColor(i))).join('')}
-      ${more > 0 ? choice('pick', '…', 'Une autre idée…', `${plural(more, 'autre idée')}`) : ''}
-      ${choice('inbox', '⏱', 'Plus tard', 'Va dans « À trier »')}
-      ${choice('discard', '✕', 'Supprimer cette prise', '', 'danger')}
-    </div>`,
-  (sh, close) => {
-    wireTagPicker(sh, tags);
-    const preview = sh.querySelector('audio');
-    const replay = sh.querySelector('[data-replay]');
-    replay.onclick = () => { if (preview.paused) { preview.currentTime = 0; preview.play(); } else preview.pause(); };
-    preview.onplay = () => { replay.textContent = 'pause'; };
-    preview.onpause = preview.onended = () => { replay.textContent = 'réécouter'; };
-    let busy = false;
-    sh.querySelectorAll('[data-dest]').forEach(b => {
-      b.onclick = async () => {
-        if (busy) return;
-        let dest = b.dataset.dest;
-        if (dest === 'discard') {
-          close('discard');
-          return;
-        }
-        if (dest === 'pick') {
-          // On garde la prise en mémoire et on rouvre la liste complète.
-          const name = sh.querySelector('#saveName').value.trim();
-          close('picking');
-          const picked = await pickIdea('Suite de quelle idée ?', { exclude: null });
-          if (!picked) { openSaveSheet(rec, target); return; }
-          try { await commitTake(rec, picked, name, tags); }
-          catch (e) { fail(e, 'Enregistrement impossible'); openSaveSheet(rec, target); }
-          return;
-        }
-        busy = true;
-        const label = b.querySelector('span:last-child');
-        const old = label.innerHTML;
-        label.textContent = 'Envoi…';
-        try {
-          await commitTake(rec, dest, sh.querySelector('#saveName').value.trim(), tags);
-          close('saved');
-        } catch (e) {
-          busy = false;
-          label.innerHTML = old;
-          fail(e, 'Enregistrement impossible — réessaie');
-        }
-      };
-    });
-  }).then(v => {
-    if (v === undefined) {
-      // Fermée sans choix : on ne perd pas la prise, elle va dans « À trier ».
-      commitTake(rec, 'inbox', '', tags).catch(e => fail(e, 'Enregistrement impossible'));
+  // Enregistrée depuis « + enregistrer une suite » : on sait déjà où elle va.
+  if (ideaById(target) && await save(target)) return;
+
+  const url = URL.createObjectURL(rec.blob);
+  const preview = new Audio(url);
+  const done = () => { preview.pause(); setTimeout(() => URL.revokeObjectURL(url), 1000); };
+  const hasIdeas = S.ideas.length > 0;
+  let step = 'ask';
+
+  for (;;) {
+    if (step === 'ask') {
+      const v = await openSheet(`
+        <h2>Prise enregistrée</h2>
+        <p class="sub">${fmtDur(rec.duration)} · <button class="txt-btn accent" data-replay>réécouter</button></p>
+        <p class="ask">Cette prise, c'est…</p>
+        <button class="big-choice" data-go="new"><b>Une nouvelle idée</b><span>Le début de quelque chose de nouveau.</span></button>
+        ${hasIdeas ? '<button class="big-choice" data-go="suite"><b>La suite d\'une idée</b><span>Elle s’ajoute à une idée que tu as déjà.</span></button>' : ''}
+        <div class="sheet-foot">
+          <button class="txt-btn" data-go="later">je décide plus tard</button>
+          <button class="txt-btn danger" data-go="discard">supprimer</button>
+        </div>`,
+      (sh, close) => {
+        const replay = sh.querySelector('[data-replay]');
+        replay.onclick = () => { if (preview.paused) { preview.currentTime = 0; preview.play(); } else preview.pause(); };
+        preview.onplay = () => { replay.textContent = 'pause'; };
+        preview.onpause = preview.onended = () => { replay.textContent = 'réécouter'; };
+        sh.querySelectorAll('[data-go]').forEach(btn => { btn.onclick = () => close(btn.dataset.go); });
+      });
+      preview.pause();
+      if (v === 'new' || v === 'suite') { step = v; continue; }
+      if (v === 'discard') {
+        if (await confirmBox('Supprimer cette prise ?', 'Elle ne sera pas gardée.', 'Supprimer')) { done(); return; }
+        continue;
+      }
+      // « plus tard », ou panneau fermé : la prise n'est jamais perdue, elle va dans « À trier ».
+      if (await save('inbox')) { done(); return; }
+      continue;
     }
-    if (v !== 'picking') setTimeout(() => URL.revokeObjectURL(url), 1000);
-  });
+
+    if (step === 'new') {
+      const tags = [];
+      const v = await openSheet(`
+        <h2>Nouvelle idée</h2>
+        <label class="label" for="ideaName">Son nom</label>
+        <input class="field" id="ideaName" placeholder="Ex : balade en La mineur" autocomplete="off">
+        <p class="hint">Tu peux le laisser vide et la nommer plus tard.</p>
+        <label class="label">Étiquettes (facultatif)</label>
+        <div class="tag-picker"></div>
+        <div class="row"><button class="btn" data-back>Retour</button><button class="btn primary" data-ok>Enregistrer</button></div>`,
+      (sh, close) => {
+        wireTagPicker(sh, tags);
+        const f = sh.querySelector('#ideaName');
+        const ok = () => close({ name: f.value.trim() });
+        sh.querySelector('[data-ok]').onclick = ok;
+        sh.querySelector('[data-back]').onclick = () => close('back');
+        f.onkeydown = e => { if (e.key === 'Enter') ok(); };
+      });
+      if (v && typeof v === 'object') {
+        if (await save('new', v.name, tags)) { done(); return; }
+        continue;
+      }
+      step = 'ask';
+      continue;
+    }
+
+    if (step === 'suite') {
+      const list = recentIdeas();
+      const v = await openSheet(`
+        <h2>La suite de quelle idée ?</h2>
+        <p class="sub">Touche l'idée : la prise s'ajoute à la fin.</p>
+        ${list.length > 6 ? '<input class="field" id="pq" placeholder="Filtrer" autocomplete="off" style="margin-top:14px">' : ''}
+        <div class="choices">${list.map(i =>
+          `<button class="choice" data-pick="${i.id}" data-q="${esc(norm(ideaTitle(i) + ' ' + (i.tags || []).join(' ')))}"><span>${esc(ideaTitle(i))}<small>${plural(takesOf(i.id).length, 'prise')} · ${ago(i.updated_at)}</small></span></button>`).join('')}</div>
+        <div class="sheet-foot"><button class="txt-btn" data-back>retour</button></div>`,
+      (sh, close) => {
+        sh.querySelectorAll('[data-pick]').forEach(btn => { btn.onclick = () => close(btn.dataset.pick); });
+        sh.querySelector('[data-back]').onclick = () => close('back');
+        const pq = sh.querySelector('#pq');
+        if (pq) pq.oninput = () => {
+          const q = norm(pq.value);
+          sh.querySelectorAll('[data-q]').forEach(btn => { btn.hidden = !btn.dataset.q.includes(q); });
+        };
+      });
+      if (v && v !== 'back' && ideaById(v)) {
+        if (await save(v)) { done(); return; }
+        continue;
+      }
+      step = 'ask';
+      continue;
+    }
+  }
 }
 
 /* ---------------- Menus ---------------- */

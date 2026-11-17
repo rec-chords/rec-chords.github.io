@@ -5,7 +5,7 @@ dans une **idée** (nouvelle ou suite d'une idée existante). Tu peux glisser le
 
 ## Utilisation
 
-- **Barre « Enregistrer » en bas** : tu enregistres. À l'arrêt, tu choisis : *Nouvelle idée*, *Suite de…* ou *Plus tard*.
+- **Barre « Enregistrer » en bas** : tu enregistres. À l'arrêt, l'appli pose une seule question : « une nouvelle idée » ou « la suite d'une idée ». Tu peux aussi répondre « je décide plus tard ».
 - **« + enregistrer une suite »** sous une idée : la prise va directement dans cette idée.
 - **Glisser-déposer** : à la souris, attrape une prise et lâche-la sur un autre bloc. Au téléphone, fais un **appui long**
   sur la prise, puis glisse-la. Si tu la lâches entre deux prises, tu changes l'ordre. Si tu la lâches sur la zone

@@ -225,6 +225,20 @@ h2 + .field { margin-top: 16px; }
 .seg button { padding: 4px 0; color: var(--muted); border-bottom: 1px solid transparent; }
 .seg button.on { color: var(--text); border-bottom-color: var(--accent); }
 
+.ask { margin: 24px 0 4px; font-size: 16px; color: var(--muted); }
+.big-choice {
+  display: block; width: 100%; text-align: left; margin-top: 10px; padding: 18px 16px;
+  border: 1px solid var(--line);
+}
+.big-choice b { display: block; font-weight: 600; font-size: 19px; letter-spacing: -.02em; }
+.big-choice span { display: block; margin-top: 3px; font-size: 14.5px; color: var(--muted); }
+.big-choice:hover, .big-choice:active { border-color: var(--accent); }
+.big-choice:hover b { color: var(--accent); }
+.sheet-foot { display: flex; justify-content: space-between; gap: 16px; margin-top: 22px; }
+.txt-btn.accent { color: var(--accent); }
+.txt-btn.danger { color: var(--red); }
+.hint { margin: 8px 0 0; font-size: 13.5px; color: var(--muted); }
+
 /* ---------- Vide + message ---------- */
 .empty { padding: 34px 24px; color: var(--muted); max-width: 40ch; }
 .empty-title { font-weight: 600; font-size: 23px; letter-spacing: -.025em; color: var(--text); margin: 0 0 6px; }
