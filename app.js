@@ -1560,7 +1560,6 @@ function wireUi() {
 
 async function boot() {
   setTheme(currentTheme());
-  initParallax();
   wireUi();
   wireDrag();
   wireFileDrop();
