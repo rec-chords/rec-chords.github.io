@@ -220,8 +220,10 @@ function blockHtml(idea, list) {
     <p class="block-sub"><span>${esc(sub)}</span>${tags.map(t => `<span class="tag">#${esc(t)}</span>`).join('')}</p>
     ${idea.notes ? `<div class="lyrics" data-action="text" data-idea="${idea.id}" title="Modifier le texte">${esc(idea.notes)}</div>` : ''}
     <ol class="takes">${list.map((t, i) => takeHtml(t, i, false)).join('')}</ol>
-    <button class="add-take" data-action="record-into" data-idea="${idea.id}">+ enregistrer une suite</button>
-    ${idea.notes ? '' : `<button class="add-take second" data-action="text" data-idea="${idea.id}">+ écrire un texte</button>`}
+    <div class="block-foot">
+      <button class="add-take" data-action="record-into" data-idea="${idea.id}">+ enregistrer une suite</button>
+      ${idea.notes ? '' : `<button class="add-take second" data-action="text" data-idea="${idea.id}">+ écrire un texte</button>`}
+    </div>
   </section>`;
 }
 

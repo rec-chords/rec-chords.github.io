@@ -356,3 +356,14 @@ textarea.field.editor { flex: 1; min-height: 160px; margin-top: 16px; font-size:
 .inst-btn svg { width: 24px; height: 24px; }
 .inst-btn span { font: 11.5px var(--mono); }
 .inst-btn.on { border-color: var(--accent); background: var(--accent); color: #fff; }
+
+/* ---------- Séparation entre idées ----------
+   Un filet épais ouvre chaque idée, les filets fins restent à l'intérieur,
+   et un grand blanc la referme : on voit d'un coup d'œil où l'une finit. */
+.block { margin-bottom: 92px; padding-top: 18px; border-top: 3px solid var(--text); }
+.block.inbox { border-top-width: 1px; }
+.block.new-zone { border-width: 1px; }
+.block.drop-hover { box-shadow: none; }
+.block-foot { display: flex; flex-wrap: wrap; gap: 0 26px; border-top: 1px solid var(--line); }
+.block-foot .add-take, .block-foot .add-take.second { width: auto; border-top: 0; padding-top: 12px; }
+@media (max-width: 520px) { .block { margin-bottom: 76px; } }
