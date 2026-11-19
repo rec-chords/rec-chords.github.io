@@ -382,3 +382,19 @@ textarea.field.editor { flex: 1; min-height: 160px; margin-top: 16px; font-size:
 /* ---------- Fichiers glissés depuis l'ordinateur ---------- */
 body.file-drag .block { transition: border-color .1s; }
 body.file-drag .block * { pointer-events: none; }
+
+/* ---------- Une couleur par instrument ---------- */
+[data-inst] { --ic: var(--muted); }
+[data-inst="voix"]     { --ic: #ff5a5f; }
+[data-inst="guitare"]  { --ic: #ff9f43; }
+[data-inst="basse"]    { --ic: #f5c518; }
+[data-inst="clavier"]  { --ic: #2fd3a6; }
+[data-inst="batterie"] { --ic: #4aa8ff; }
+:root[data-theme="light"] [data-inst="voix"]     { --ic: #d92d3a; }
+:root[data-theme="light"] [data-inst="guitare"]  { --ic: #c8640a; }
+:root[data-theme="light"] [data-inst="basse"]    { --ic: #a67c00; }
+:root[data-theme="light"] [data-inst="clavier"]  { --ic: #0b8f6c; }
+:root[data-theme="light"] [data-inst="batterie"] { --ic: #1570d6; }
+.inst[data-inst], .take.is-playing .inst[data-inst] { color: var(--ic); }
+.inst-btn svg { color: var(--ic); }
+.inst-btn.on { border-color: var(--ic); background: color-mix(in srgb, var(--ic) 16%, var(--bg)); color: var(--text); }

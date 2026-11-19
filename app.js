@@ -191,7 +191,7 @@ function takeHtml(t, index, inInbox) {
   return `<li class="take" data-id="${t.id}">
     <button class="play" data-action="play" data-id="${t.id}" aria-label="Écouter"><span class="num">${String(index + 1).padStart(2, '0')}</span><span class="pi">${ICONS.play}</span></button>
     <div class="take-main">
-      <div class="take-line">${inst ? `<span class="inst" title="${esc(inst.label)}">${inst.icon}</span>` : ''}<span class="take-title">${esc(title)}</span><span class="take-meta">${esc(meta)}</span></div>
+      <div class="take-line">${inst ? `<span class="inst" data-inst="${inst.id}" title="${esc(inst.label)}">${inst.icon}</span>` : ''}<span class="take-title">${esc(title)}</span><span class="take-meta">${esc(meta)}</span></div>
       ${t.notes ? `<div class="take-note">${esc(t.notes)}</div>` : ''}
       <div class="wave" data-action="seek" data-id="${t.id}">${waveSvg(t, 'w-base')}${waveSvg(t, 'w-fill')}</div>
     </div>
