@@ -16,6 +16,9 @@ dans une **idée** (nouvelle ou suite d'une idée existante). Tu peux glisser le
 - **⋯** sur une prise : renommer, note, déplacer, télécharger, supprimer.
 - **« importer »** (en haut à droite) : charge tes anciens vocaux, ils arrivent dans « À trier ».
 - **Texte** : « + écrire un texte » sous une idée ouvre une page pour tes paroles, accords ou notes. Le texte s'affiche ensuite sous le titre de l'idée ; touche-le pour le modifier. Le bouton « écouter » lance les prises pendant que tu écris.
+- **Tempo, tonalité, accords** : « + tempo et tonalité » sous une idée. Le bouton « Taper » trouve le tempo quand tu appuies en rythme, « Clic » fait entendre le métronome.
+- **Métronome** : sur l'écran d'enregistrement, touche « métronome » (au casque, sinon le clic s'entend dans la prise). Il reprend le tempo de l'idée, et une idée enregistrée au métronome garde ce tempo.
+- **Boucle** : pendant l'écoute d'une prise, « boucle » la répète en entier ; « début » puis « fin » délimitent un passage à répéter.
 - Sur PC, **glisse des fichiers audio** depuis un dossier vers la page : lâche-les sur une idée pour les y ajouter, sur « déposer ici pour une nouvelle idée » pour en créer une, ou ailleurs pour les envoyer dans « À trier ».
 - Sur PC, la **barre d'espace** lance et arrête l'enregistrement.
 - **Apparence** : sombre ou clair, dans les réglages.

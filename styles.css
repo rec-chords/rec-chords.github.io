@@ -398,3 +398,28 @@ body.file-drag .block * { pointer-events: none; }
 .inst[data-inst], .take.is-playing .inst[data-inst] { color: var(--ic); }
 .inst-btn svg { color: var(--ic); }
 .inst-btn.on { border-color: var(--ic); background: color-mix(in srgb, var(--ic) 16%, var(--bg)); color: var(--text); }
+
+/* ---------- Tempo, tonalité, accords ---------- */
+.tempo-chip { display: inline-block; margin-top: 10px; padding: 2px 8px; border: 1px solid var(--line); font: 14px var(--mono); color: var(--text); }
+.tempo-chip:hover { border-color: var(--accent); }
+.chords { margin: 10px 0 0; font: 500 15.5px var(--mono); letter-spacing: .02em; white-space: pre-wrap; overflow-wrap: anywhere; cursor: pointer; }
+.tempo-row { display: flex; gap: 8px; }
+.tempo-row .field { flex: 1; min-width: 0; }
+.tempo-row .btn { flex: none; }
+
+/* ---------- Métronome à l'enregistrement ---------- */
+.rec-metro { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px 18px; margin-top: 16px; font: 15px var(--mono); }
+.rec-metro .on { color: var(--accent); }
+.rec-metro #metroMinus, .rec-metro #metroPlus { font-size: 20px; text-decoration: none; padding: 0 6px; border-bottom: 0; }
+.rec-hint { margin: 8px 0 0; font: 13px var(--mono); color: var(--muted); text-align: center; }
+
+/* ---------- Boucle sur un passage ---------- */
+.loopbar { display: none; gap: 18px; margin-top: 8px; }
+.take.is-current .loopbar { display: flex; }
+.loopbar .txt-btn { font-size: 13px; }
+.loopbar .txt-btn.on { color: var(--accent); }
+.wave .w-loop {
+  display: none; position: absolute; top: -3px; bottom: -3px; pointer-events: none;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  border-left: 1px solid var(--accent); border-right: 1px solid var(--accent);
+}

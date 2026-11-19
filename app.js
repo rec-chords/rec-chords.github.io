@@ -193,7 +193,12 @@ function takeHtml(t, index, inInbox) {
     <div class="take-main">
       <div class="take-line">${inst ? `<span class="inst" data-inst="${inst.id}" title="${esc(inst.label)}">${inst.icon}</span>` : ''}<span class="take-title">${esc(title)}</span><span class="take-meta">${esc(meta)}</span></div>
       ${t.notes ? `<div class="take-note">${esc(t.notes)}</div>` : ''}
-      <div class="wave" data-action="seek" data-id="${t.id}">${waveSvg(t, 'w-base')}${waveSvg(t, 'w-fill')}</div>
+      <div class="wave" data-action="seek" data-id="${t.id}">${waveSvg(t, 'w-base')}${waveSvg(t, 'w-fill')}<i class="w-loop"></i></div>
+      <div class="loopbar">
+        <button class="txt-btn" data-action="loop" data-id="${t.id}">boucle</button>
+        <button class="txt-btn" data-action="loop-a" data-id="${t.id}">début</button>
+        <button class="txt-btn" data-action="loop-b" data-id="${t.id}">fin</button>
+      </div>
     </div>
     <button class="mini-btn" data-action="take-menu" data-id="${t.id}" aria-label="Options de la prise">${ICONS.more}</button>
   </li>`;
@@ -210,6 +215,7 @@ function blockHtml(idea, list) {
   const tags = idea.tags || [];
   const total = list.reduce((sum, t) => sum + (t.duration || 0), 0);
   const sub = [list.length ? `${plural(list.length, 'prise')} · ${fmtDur(total)}` : 'vide', ago(idea.updated_at)].join(' · ');
+  const music = [idea.bpm ? `${idea.bpm} bpm` : '', idea.tona || ''].filter(Boolean).join(' · ');
   return `<section class="block" data-drop="${idea.id}">
     <div class="block-head">
       <h3 class="block-title ${idea.title ? '' : 'placeholder'}" data-action="rename" data-idea="${idea.id}">${esc(ideaTitle(idea))}</h3>
@@ -218,11 +224,14 @@ function blockHtml(idea, list) {
       <button class="mini-btn" data-action="idea-menu" data-idea="${idea.id}" aria-label="Options de l'idée">${ICONS.more}</button>
     </div>
     <p class="block-sub"><span>${esc(sub)}</span>${tags.map(t => `<span class="tag">#${esc(t)}</span>`).join('')}</p>
+    ${music ? `<button class="tempo-chip" data-action="tempo" data-idea="${idea.id}" title="Modifier">${esc(music)}</button>` : ''}
+    ${idea.chords ? `<div class="chords" data-action="tempo" data-idea="${idea.id}" title="Modifier">${esc(idea.chords)}</div>` : ''}
     ${idea.notes ? `<div class="lyrics" data-action="text" data-idea="${idea.id}" title="Modifier le texte">${esc(idea.notes)}</div>` : ''}
     <ol class="takes">${list.map((t, i) => takeHtml(t, i, false)).join('')}</ol>
     <div class="block-foot">
       <button class="add-take" data-action="record-into" data-idea="${idea.id}">+ enregistrer une suite</button>
       ${idea.notes ? '' : `<button class="add-take second" data-action="text" data-idea="${idea.id}">+ écrire un texte</button>`}
+      ${music || idea.chords ? '' : `<button class="add-take second" data-action="tempo" data-idea="${idea.id}">+ tempo et tonalité</button>`}
     </div>
   </section>`;
 }
@@ -280,6 +289,59 @@ function render() {
 const audio = new Audio();
 audio.preload = 'auto';
 
+// Boucle sur la prise en cours : toute la prise, ou un passage entre « début » et « fin ».
+const LOOP = { id: null, on: false, a: null, b: null };
+function resetLoop() { Object.assign(LOOP, { id: null, on: false, a: null, b: null }); }
+function loopAction(action, id) {
+  if (S.playing !== id) return;
+  const now = audio.currentTime;
+  const same = LOOP.id === id;
+  if (action === 'loop') {
+    if (same && LOOP.on) resetLoop();
+    else Object.assign(LOOP, { id, on: true, a: null, b: null });
+  } else if (action === 'loop-a') {
+    Object.assign(LOOP, { id, on: true, a: now, b: same && LOOP.b != null && LOOP.b > now + .3 ? LOOP.b : null });
+  } else if (action === 'loop-b') {
+    const a = same && LOOP.a != null ? LOOP.a : 0;
+    if (now - a < .3) { toast('Passage trop court : laisse jouer un peu avant de marquer la fin.'); return; }
+    Object.assign(LOOP, { id, on: true, a, b: now });
+    try { audio.currentTime = a; } catch {}
+  }
+  if (audio.paused && LOOP.on) audio.play();
+  updateLoopUI();
+}
+function updateLoopUI() {
+  document.querySelectorAll('.take').forEach(row => {
+    const mine = LOOP.on && LOOP.id === row.dataset.id;
+    const [bLoop, bA, bB] = row.querySelectorAll('.loopbar button');
+    if (!bLoop) return;
+    bLoop.classList.toggle('on', mine);
+    bLoop.textContent = mine ? 'boucle ✓' : 'boucle';
+    bA.classList.toggle('on', mine && LOOP.a != null);
+    bA.textContent = mine && LOOP.a != null ? `début ${fmtDur(LOOP.a)}` : 'début';
+    bB.classList.toggle('on', mine && LOOP.b != null);
+    bB.textContent = mine && LOOP.b != null ? `fin ${fmtDur(LOOP.b)}` : 'fin';
+    const zone = row.querySelector('.w-loop');
+    const take = takeById(row.dataset.id);
+    const total = take ? totalOf(take) : 0;
+    if (zone) {
+      const show = mine && total && (LOOP.a != null || LOOP.b != null);
+      zone.style.display = show ? 'block' : 'none';
+      if (show) {
+        const a = (LOOP.a || 0) / total * 100;
+        const b = (LOOP.b != null ? LOOP.b : total) / total * 100;
+        zone.style.left = `${a}%`;
+        zone.style.width = `${Math.max(.5, b - a)}%`;
+      }
+    }
+  });
+}
+setInterval(() => {
+  if (LOOP.on && LOOP.id === S.playing && LOOP.b != null && !audio.paused && audio.currentTime >= LOOP.b) {
+    try { audio.currentTime = LOOP.a || 0; } catch {}
+  }
+}, 40);
+
 async function play(id, queue = []) {
   if (S.playing === id) {
     if (audio.paused) audio.play(); else audio.pause();
@@ -287,6 +349,7 @@ async function play(id, queue = []) {
   }
   const take = takeById(id);
   if (!take) return;
+  resetLoop();
   try {
     S.playing = id;
     S.queue = queue;
@@ -303,10 +366,12 @@ function updatePlayUI() {
     const current = row.dataset.id === S.playing;
     const on = current && !audio.paused;
     row.classList.toggle('is-playing', on);
+    row.classList.toggle('is-current', current);
     const pi = row.querySelector('.pi');
     if (pi) pi.innerHTML = on ? ICONS.pause : ICONS.play;
     if (!current) { const f = row.querySelector('.w-fill'); if (f) f.style.clipPath = ''; }
   });
+  updateLoopUI();
 }
 function totalOf(take) {
   return isFinite(audio.duration) && audio.duration > 0 ? audio.duration : take.duration;
@@ -330,6 +395,11 @@ audio.addEventListener('timeupdate', () => {
   document.querySelectorAll(`.take[data-id="${S.playing}"] .w-fill`).forEach(f => { f.style.clipPath = `inset(0 ${100 - pct}% 0 0)`; });
 });
 audio.addEventListener('ended', () => {
+  if (LOOP.on && LOOP.id === S.playing) { // en boucle : on repart du début du passage
+    try { audio.currentTime = LOOP.a || 0; } catch {}
+    audio.play();
+    return;
+  }
   const next = S.queue.shift();
   S.playing = null;
   if (next) play(next, S.queue); else updatePlayUI();
@@ -527,9 +597,130 @@ async function commitTake(rec, dest, name, tags) {
   take.peaks = rec.info ? rec.info.peaks : [];
   await S.store.saveTake(take, rec.blob);
   S.takes.push(take);
+  if (idea && rec.bpm && !idea.bpm) idea.bpm = rec.bpm; // enregistrée au métronome : l'idée garde ce tempo
   if (idea) await touchIdea(idea);
   render();
   toast(idea ? `Rangé dans « ${ideaTitle(idea)} »` : 'Rangé dans « À trier »');
+}
+
+/* ---------------- Métronome ---------------- */
+const METRO = { ctx: null, timer: null, bpm: 90, beat: 0, next: 0 };
+const clampBpm = v => Math.max(30, Math.min(300, Math.round(Number(v) || 0)));
+const savedBpm = () => { try { return clampBpm(localStorage.getItem('fredon.bpm') || 90); } catch { return 90; } };
+const savedMetro = () => { try { return localStorage.getItem('fredon.metro') === '1'; } catch { return false; } };
+function metroClick(ctx, t, accent) {
+  const o = ctx.createOscillator();
+  const g = ctx.createGain();
+  o.frequency.value = accent ? 1600 : 1000;
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(accent ? .6 : .4, t + .002);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + .05);
+  o.connect(g).connect(ctx.destination);
+  o.start(t);
+  o.stop(t + .06);
+}
+function startMetro(bpm) {
+  stopMetro();
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return;
+  if (!METRO.ctx) METRO.ctx = new AC();
+  const ctx = METRO.ctx;
+  if (ctx.state === 'suspended') ctx.resume();
+  METRO.bpm = clampBpm(bpm);
+  METRO.beat = 0;
+  METRO.next = ctx.currentTime + .08;
+  // On programme les clics un peu en avance : le rythme reste régulier même si la page rame.
+  METRO.timer = setInterval(() => {
+    while (METRO.next < ctx.currentTime + .12) {
+      metroClick(ctx, METRO.next, METRO.beat % 4 === 0);
+      METRO.next += 60 / METRO.bpm;
+      METRO.beat++;
+    }
+  }, 25);
+}
+function stopMetro() { clearInterval(METRO.timer); METRO.timer = null; }
+// « Taper le tempo » : la moyenne des derniers écarts entre deux appuis.
+function makeTapper() {
+  let taps = [];
+  return () => {
+    const now = performance.now();
+    if (taps.length && now - taps[taps.length - 1] > 2000) taps = [];
+    taps.push(now);
+    if (taps.length > 7) taps.shift();
+    if (taps.length < 2) return null;
+    return clampBpm(60000 / ((taps[taps.length - 1] - taps[0]) / (taps.length - 1)));
+  };
+}
+
+function syncMetroUI() {
+  $('#metroToggle').textContent = REC.metro ? 'métronome ✓' : 'métronome';
+  $('#metroToggle').classList.toggle('on', !!REC.metro);
+  $('#metroBpm').textContent = `${REC.bpm} bpm`;
+  $('#metroHint').hidden = !REC.metro;
+}
+function setRecBpm(bpm) {
+  REC.bpm = clampBpm(bpm);
+  try { localStorage.setItem('fredon.bpm', REC.bpm); } catch {}
+  if (REC.metro) METRO.bpm = REC.bpm;
+  syncMetroUI();
+}
+function toggleRecMetro() {
+  if (!REC.recorder) return;
+  REC.metro = !REC.metro;
+  try { localStorage.setItem('fredon.metro', REC.metro ? '1' : '0'); } catch {}
+  if (REC.metro) { REC.metroUsed = true; startMetro(REC.bpm); } else stopMetro();
+  syncMetroUI();
+}
+
+// Tempo, tonalité et accords d'une idée.
+async function editTempo(idea) {
+  let bpm = idea.bpm || '';
+  let tona = idea.tona || '';
+  let chords = idea.chords || '';
+  const v = await openSheet(`
+    <h2>Tempo et tonalité</h2>
+    <p class="sub">${esc(ideaTitle(idea))}</p>
+    <label class="label" for="tBpm">Tempo (bpm)</label>
+    <div class="tempo-row">
+      <input class="field" id="tBpm" type="number" inputmode="numeric" min="30" max="300" placeholder="Ex : 92" value="${esc(bpm)}">
+      <button class="btn" data-tap>Taper</button>
+      <button class="btn" data-click>Clic</button>
+    </div>
+    <p class="hint">« Taper » : appuie en rythme pour trouver le tempo. « Clic » fait entendre le métronome.</p>
+    <label class="label" for="tKey">Tonalité</label>
+    <input class="field" id="tKey" placeholder="Ex : La mineur" autocomplete="off" maxlength="30" value="${esc(tona)}">
+    <label class="label" for="tChords">Accords</label>
+    <input class="field" id="tChords" placeholder="Ex : Am  F  C  G" autocomplete="off" maxlength="120" value="${esc(chords)}">
+    <div class="row"><button class="btn" data-x>Annuler</button><button class="btn primary" data-ok>Enregistrer</button></div>`,
+  (sh, close) => {
+    const iBpm = sh.querySelector('#tBpm');
+    const bClick = sh.querySelector('[data-click]');
+    const tap = makeTapper();
+    iBpm.oninput = () => { bpm = iBpm.value; if (METRO.timer && clampBpm(bpm) >= 30) METRO.bpm = clampBpm(bpm); };
+    sh.querySelector('#tKey').oninput = e => { tona = e.target.value; };
+    sh.querySelector('#tChords').oninput = e => { chords = e.target.value; };
+    sh.querySelector('[data-tap]').onclick = () => {
+      const t = tap();
+      if (t) { bpm = t; iBpm.value = t; if (METRO.timer) METRO.bpm = t; }
+    };
+    bClick.onclick = () => {
+      if (METRO.timer) { stopMetro(); bClick.textContent = 'Clic'; return; }
+      if (!Number(bpm)) { toast("Indique d'abord un tempo."); return; }
+      startMetro(bpm);
+      bClick.textContent = 'Stop';
+    };
+    sh.querySelector('[data-x]').onclick = () => close('cancel');
+    sh.querySelector('[data-ok]').onclick = () => close('ok');
+  });
+  stopMetro();
+  if (v !== 'ok') return;
+  const before = { bpm: idea.bpm, tona: idea.tona, chords: idea.chords };
+  idea.bpm = Number(bpm) ? clampBpm(bpm) : null;
+  idea.tona = tona.trim();
+  idea.chords = chords.trim();
+  render();
+  try { await touchIdea(idea); render(); toast('Enregistré'); }
+  catch (e) { Object.assign(idea, before); render(); fail(e, 'Non enregistré'); }
 }
 
 /* ---------------- Enregistrement ---------------- */
@@ -577,6 +768,11 @@ async function startRecording(targetIdeaId = null) {
 
   const idea = ideaById(targetIdeaId);
   $('#recTarget').textContent = idea ? `Suite de « ${ideaTitle(idea)} »` : '';
+  REC.bpm = (idea && idea.bpm) || savedBpm();
+  REC.metro = savedMetro();
+  REC.metroUsed = REC.metro;
+  syncMetroUI();
+  if (REC.metro) startMetro(REC.bpm);
   $('#recOverlay').hidden = false;
   tickRecording();
 }
@@ -619,12 +815,13 @@ function stopRecording(cancel = false) {
 
 function onRecordingStopped() {
   cancelAnimationFrame(REC.raf);
+  stopMetro();
   REC.stream.getTracks().forEach(t => t.stop());
   try { REC.ctx && REC.ctx.close(); } catch {}
   try { REC.wake && REC.wake.release(); } catch {}
   $('#recOverlay').hidden = true;
   const type = REC.recorder.mimeType || REC.chunks[0]?.type || 'audio/webm';
-  const result = { blob: new Blob(REC.chunks, { type }), duration: REC.duration, mime: type.split(';')[0] };
+  const result = { blob: new Blob(REC.chunks, { type }), duration: REC.duration, mime: type.split(';')[0], bpm: REC.metroUsed ? REC.bpm : null };
   const { cancelled, target } = REC;
   for (const k of Object.keys(REC)) delete REC[k];
   if (cancelled) return;
@@ -751,6 +948,7 @@ async function ideaMenu(idea) {
     { label: 'Renommer', ico: '✎', value: 'rename' },
     { label: 'Étiquettes', ico: '#', value: 'tags', sub: (idea.tags || []).join(', ') },
     { label: idea.notes ? 'Modifier le texte' : 'Écrire un texte', ico: '¶', value: 'notes', sub: 'Paroles, accords, notes' },
+    { label: 'Tempo et tonalité', ico: '♩', value: 'tempo', sub: [idea.bpm ? `${idea.bpm} bpm` : '', idea.tona || '', idea.chords || ''].filter(Boolean).join(' · ') },
     { label: idea.starred ? 'Retirer des favoris' : 'Ajouter aux favoris', ico: '★', value: 'star' },
     isCloud() && !group && S.groups.length && isMine(idea) && { label: 'Partager avec un groupe', value: 'share', sub: 'Les membres pourront écouter et ajouter' },
     group && isMine(idea) && { label: `Retirer de « ${group.name} »`, value: 'unshare', sub: 'Elle redevient personnelle' },
@@ -759,6 +957,7 @@ async function ideaMenu(idea) {
   ].filter(Boolean));
   try {
     if (v === 'rename') return renameIdea(idea);
+    if (v === 'tempo') return editTempo(idea);
     if (v === 'star') { idea.starred = !idea.starred; render(); return S.store.saveIdea(idea); }
     if (v === 'color') {
       const cur = ideaColor(idea);
@@ -1493,6 +1692,11 @@ function wireUi() {
   $('#recBtn').onclick = () => startRecording(null);
   $('#recStop').onclick = () => stopRecording(false);
   $('#recCancel').onclick = () => stopRecording(true);
+  $('#metroToggle').onclick = toggleRecMetro;
+  $('#metroMinus').onclick = () => setRecBpm(REC.bpm - 1);
+  $('#metroPlus').onclick = () => setRecBpm(REC.bpm + 1);
+  const recTap = makeTapper();
+  $('#metroTap').onclick = () => { const t = recTap(); if (t) setRecBpm(t); };
   $('#settingsBtn').onclick = openSettings;
   $('#importBtn').onclick = () => $('#importInput').click();
   $('#importInput').onchange = e => { const f = e.target.files; if (f && f.length) importFiles(f); e.target.value = ''; };
@@ -1530,6 +1734,8 @@ function wireUi() {
       seek(el.dataset.id, Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)));
     }
     if (a === 'take-menu') takeMenu(takeById(el.dataset.id));
+    if (a === 'loop' || a === 'loop-a' || a === 'loop-b') loopAction(a, el.dataset.id);
+    if (a === 'tempo' && idea) editTempo(idea);
     if (a === 'rename' && idea) renameIdea(idea);
     if (a === 'text' && idea) editText(idea);
     if (a === 'idea-menu' && idea) ideaMenu(idea);

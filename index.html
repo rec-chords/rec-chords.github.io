@@ -49,6 +49,14 @@
       <div class="rec-top"><span class="rec-live">rec</span><button class="txt-btn" id="recCancel">annuler</button></div>
       <p class="rec-time" id="recTime">0:00</p>
       <p class="rec-target" id="recTarget"></p>
+      <div class="rec-metro">
+        <button class="txt-btn" id="metroToggle">métronome</button>
+        <button class="txt-btn" id="metroMinus" aria-label="Moins vite">−</button>
+        <span id="metroBpm">90 bpm</span>
+        <button class="txt-btn" id="metroPlus" aria-label="Plus vite">+</button>
+        <button class="txt-btn" id="metroTap">taper</button>
+      </div>
+      <p class="rec-hint" id="metroHint" hidden>Au casque, sinon le clic s'entend dans la prise.</p>
       <canvas id="levels" width="1800" height="180"></canvas>
     </div>
     <button class="stop-bar" id="recStop" aria-label="Arrêter l'enregistrement">
