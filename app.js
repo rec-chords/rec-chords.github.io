@@ -1516,7 +1516,13 @@ async function boot() {
     setStatus('Mode essai : les vocaux restent sur cet appareil. La synchro se règle dans « réglages ».');
   }
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
+    // Nouvelle version publiée : on recharge tout seul, sauf en plein enregistrement ou panneau ouvert.
+    const had = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      const busy = (REC.recorder && REC.recorder.state !== 'inactive') || document.getElementById('sheetBackdrop').offsetParent !== null;
+      if (had && !busy) location.reload();
+    });
+    navigator.serviceWorker.register('sw.js').then(r => r.update()).catch(() => {});
   }
 }
 
