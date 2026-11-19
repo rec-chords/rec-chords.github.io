@@ -83,3 +83,12 @@ python -m http.server 5173 --directory fredon
 ```
 
 Ouvre ensuite <http://localhost:5173>. Le micro marche sur `localhost`.
+
+## Groupes
+
+- **Créer** : « + groupe » en haut, puis « Créer un groupe ». Tu en es l'admin et tu reçois un code d'invitation de 8 caractères (bouton « membres » pour le retrouver).
+- **Inviter** : chaque musicien ouvre Rec., crée son compte dans « réglages », touche « + groupe », « Rejoindre un groupe » et saisit le code.
+- **Deux rôles** : l'**admin** peut retirer un membre, supprimer n'importe quelle prise ou idée du groupe, renommer ou supprimer le groupe. Un **membre** peut écouter, enregistrer une suite, modifier les textes et supprimer ses propres prises.
+- **Partager une idée** : menu ⋯ de l'idée, « Partager avec un groupe ». Seul son auteur peut la retirer du groupe.
+- **Instrument** : après un enregistrement, choisis voix, guitare, basse, clavier, batterie ou autre. L'icône s'affiche devant la prise ; elle se change par le menu ⋯ de la prise.
+- Les règles serveur des groupes sont dans `supabase-groupes.sql` (déjà exécuté).

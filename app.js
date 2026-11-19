@@ -1,4 +1,4 @@
-/* Fredon — carnet de vocaux musicaux */
+/* Rec. — carnet de vocaux musicaux (nom technique : fredon) */
 (() => {
 const { LocalStore, CloudStore, loadConfig, saveConfig } = window.FredonStore;
 
@@ -11,6 +11,9 @@ const S = {
   store: null,
   ideas: [],
   takes: [],
+  groups: [],
+  members: [],
+  scope: 'me', // 'me' = mes idées, sinon l'identifiant d'un groupe
   filter: { q: '', tags: new Set(), star: false },
   playing: null,
   queue: [],
@@ -48,13 +51,41 @@ const ICONS = {
   grip: '<svg viewBox="0 0 14 24"><g fill="currentColor"><circle cx="4" cy="7" r="1.5"/><circle cx="10" cy="7" r="1.5"/><circle cx="4" cy="12" r="1.5"/><circle cx="10" cy="12" r="1.5"/><circle cx="4" cy="17" r="1.5"/><circle cx="10" cy="17" r="1.5"/></g></svg>',
 };
 
+// Instruments : une petite icône au trait sur chaque prise.
+const ico = d => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+const INSTRUMENTS = [
+  { id: 'voix', label: 'Voix', icon: ico('<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0013 0M12 17.5V21M9 21h6"/>') },
+  { id: 'guitare', label: 'Guitare', icon: ico('<circle cx="8.5" cy="15.5" r="5"/><circle cx="8.5" cy="15.5" r="1.3"/><path d="M12 12l7.5-7.5M17.5 3l3.5 3.5"/>') },
+  { id: 'basse', label: 'Basse', icon: ico('<path d="M5 8.5a4.5 4.5 0 119 0C14 14 10 17.5 5 20"/><circle cx="5.6" cy="8.5" r=".9" fill="currentColor"/><circle cx="18.5" cy="6.5" r=".9" fill="currentColor"/><circle cx="18.5" cy="11" r=".9" fill="currentColor"/>') },
+  { id: 'clavier', label: 'Clavier', icon: ico('<rect x="3" y="6" width="18" height="12"/><path d="M7.5 6v12M12 6v12M16.5 6v12M9.75 6v6.5M14.25 6v6.5"/>') },
+  { id: 'batterie', label: 'Batterie', icon: ico('<ellipse cx="12" cy="9" rx="8" ry="3"/><path d="M4 9v7c0 1.7 3.6 3 8 3s8-1.3 8-3V9M9 3l3 6M15 3l-3 6"/>') },
+  { id: 'autre', label: 'Autre', icon: ico('<path d="M9 18V5.5l10-2V16"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/>') },
+];
+const instrumentOf = id => INSTRUMENTS.find(i => i.id === id);
+const lastInstrument = () => { try { return localStorage.getItem('fredon.instrument') || 'voix'; } catch { return 'voix'; } };
+const rememberInstrument = id => { try { localStorage.setItem('fredon.instrument', id); } catch {} };
+const lastName = () => { try { return localStorage.getItem('fredon.name') || ''; } catch { return ''; } };
+
+// Qui suis-je, et qu'ai-je le droit de faire ? (Le serveur revérifie tout.)
+const me = () => (S.store && S.store.user ? S.store.user.id : null);
+const isCloud = () => !!(S.store && S.store.kind === 'cloud' && S.store.user);
+const groupById = id => S.groups.find(g => g.id === id);
+const membersOf = gid => S.members.filter(m => m.group_id === gid);
+const myMember = gid => S.members.find(m => m.group_id === gid && m.user_id === me());
+const isAdmin = gid => !!gid && myMember(gid)?.role === 'admin';
+const isMine = row => !row.user_id || row.user_id === me();
+const inScope = idea => (S.scope === 'me' ? !idea.group_id : idea.group_id === S.scope);
+const visibleIdeas = () => S.ideas.filter(inScope);
+const canDeleteIdea = idea => isMine(idea) || isAdmin(idea.group_id);
+
 const ideaById = id => S.ideas.find(i => i.id === id);
+const canDeleteTake = take => isMine(take) || isAdmin(ideaById(take.idea_id)?.group_id);
 const takeById = id => S.takes.find(t => t.id === id);
 const takesOf = ideaId => S.takes.filter(t => t.idea_id === ideaId).sort((a, b) => a.position - b.position || a.created_at.localeCompare(b.created_at));
-const inboxTakes = () => S.takes.filter(t => !t.idea_id || !ideaById(t.idea_id)).sort((a, b) => b.created_at.localeCompare(a.created_at));
+const inboxTakes = () => (S.scope !== 'me' ? [] : S.takes.filter(t => (!t.idea_id || !ideaById(t.idea_id)) && isMine(t)).sort((a, b) => b.created_at.localeCompare(a.created_at)));
 const ideaTitle = idea => idea.title || `Idée du ${fmtDay(idea.created_at)}`;
-const allTags = () => [...new Set(S.ideas.flatMap(i => i.tags || []))].sort((a, b) => a.localeCompare(b, 'fr'));
-const recentIdeas = () => [...S.ideas].sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+const allTags = () => [...new Set(visibleIdeas().flatMap(i => i.tags || []))].sort((a, b) => a.localeCompare(b, 'fr'));
+const recentIdeas = () => visibleIdeas().sort((a, b) => b.updated_at.localeCompare(a.updated_at));
 function hashOf(str) { let h = 7; for (const ch of String(str)) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return h; }
 const ideaColor = idea => (idea && idea.color) || PALETTE[hashOf(idea ? idea.id : '') % PALETTE.length];
 const fmtLong = sec => (sec < 60 ? `${Math.round(sec)} s` : sec < 3600 ? `${Math.round(sec / 60)} min` : `${Math.floor(sec / 3600)} h ${String(Math.round(sec % 3600 / 60)).padStart(2, '0')}`);
@@ -148,16 +179,19 @@ function renderFilters() {
   nav.innerHTML =
     `<button class="chip star ${f.star ? 'on' : ''}" data-filter-star>favoris</button>` +
     tags.map(t => `<button class="chip ${f.tags.has(t) ? 'on' : ''}" data-filter-tag="${esc(t)}">${esc(t)}</button>`).join('');
-  nav.hidden = !tags.length && !S.ideas.some(i => i.starred);
+  nav.hidden = !tags.length && !visibleIdeas().some(i => i.starred);
 }
 
 function takeHtml(t, index, inInbox) {
   const title = t.title || (inInbox ? `Vocal du ${fmtDayTime(t.created_at)}` : `Prise ${index + 1}`);
-  const meta = inInbox ? fmtDur(t.duration) : `${fmtDay(t.created_at)} · ${fmtDur(t.duration)}`;
+  const shared = !inInbox && ideaById(t.idea_id)?.group_id;
+  const who = shared && t.author ? `${t.author} · ` : '';
+  const meta = inInbox ? fmtDur(t.duration) : `${who}${fmtDay(t.created_at)} · ${fmtDur(t.duration)}`;
+  const inst = instrumentOf(t.instrument);
   return `<li class="take" data-id="${t.id}">
     <button class="play" data-action="play" data-id="${t.id}" aria-label="Écouter"><span class="num">${String(index + 1).padStart(2, '0')}</span><span class="pi">${ICONS.play}</span></button>
     <div class="take-main">
-      <div class="take-line"><span class="take-title">${esc(title)}</span><span class="take-meta">${esc(meta)}</span></div>
+      <div class="take-line">${inst ? `<span class="inst" title="${esc(inst.label)}">${inst.icon}</span>` : ''}<span class="take-title">${esc(title)}</span><span class="take-meta">${esc(meta)}</span></div>
       ${t.notes ? `<div class="take-note">${esc(t.notes)}</div>` : ''}
       <div class="wave" data-action="seek" data-id="${t.id}">${waveSvg(t, 'w-base')}${waveSvg(t, 'w-fill')}</div>
     </div>
@@ -193,15 +227,38 @@ function blockHtml(idea, list) {
 
 function renderHero() {
   const hero = $('#hero');
-  const n = S.ideas.length;
-  const t = S.takes.length;
-  hero.hidden = !n && !t;
+  const ideas = visibleIdeas();
+  const ids = new Set(ideas.map(i => i.id));
+  const takes = S.takes.filter(t => ids.has(t.idea_id)).concat(inboxTakes());
+  hero.hidden = !ideas.length && !takes.length;
   if (hero.hidden) return;
-  const total = S.takes.reduce((sum, x) => sum + (x.duration || 0), 0);
+  const n = ideas.length;
+  const t = takes.length;
+  const total = takes.reduce((sum, x) => sum + (x.duration || 0), 0);
   hero.innerHTML = `<p><b>${n}</b> ${n > 1 ? 'idées' : 'idée'} · <b>${t}</b> ${t > 1 ? 'prises' : 'prise'} · <b>${fmtLong(total)}</b></p>`;
 }
 
+// Barre de choix : mes idées, ou celles d'un groupe.
+function renderScopes() {
+  const nav = $('#scopes');
+  nav.hidden = !isCloud();
+  if (nav.hidden) return;
+  nav.innerHTML =
+    `<button class="scope ${S.scope === 'me' ? 'on' : ''}" data-scope="me">Mes idées</button>` +
+    S.groups.map(g => `<button class="scope ${S.scope === g.id ? 'on' : ''}" data-scope="${g.id}">${esc(g.name)}</button>`).join('') +
+    '<button class="scope add" data-scope-add>+ groupe</button>' +
+    (S.scope !== 'me' ? '<button class="txt-btn" data-scope-manage>membres</button>' : '');
+}
+function setScope(id) {
+  S.scope = id === 'me' || groupById(id) ? id : 'me';
+  try { localStorage.setItem('fredon.scope', S.scope); } catch {}
+  S.filter.tags.clear();
+  S.filter.star = false;
+  render();
+}
+
 function render() {
+  renderScopes();
   renderFilters();
   renderHero();
   const board = $('#board');
@@ -213,7 +270,7 @@ function render() {
   const ideas = recentIdeas().filter(matchesIdea);
   html += ideas.map(i => blockHtml(i, takesOf(i.id))).join('');
   board.innerHTML = html;
-  $('#empty').hidden = S.ideas.length > 0 || S.takes.length > 0;
+  $('#empty').hidden = visibleIdeas().length > 0 || inboxTakes().length > 0;
   updatePlayUI();
 }
 
@@ -378,7 +435,9 @@ function wireTagPicker(root, selected) {
 /* ---------------- Données : opérations ---------------- */
 function newIdea(fields = {}) {
   const t = nowIso();
-  return { id: uid(), title: '', tags: [], starred: false, notes: '', color: '', created_at: t, updated_at: t, ...fields };
+  const idea = { id: uid(), title: '', tags: [], starred: false, notes: '', color: '', created_at: t, updated_at: t, ...fields };
+  if (isCloud()) idea.group_id = S.scope === 'me' ? null : S.scope; // créée dans le groupe affiché
+  return idea;
 }
 async function saveIdea(idea) {
   if (!S.ideas.includes(idea)) S.ideas.push(idea);
@@ -459,7 +518,9 @@ async function commitTake(rec, dest, name, tags) {
     path: '',
     position: idea ? nextPos(idea.id) : 0,
     created_at: nowIso(),
+    instrument: rec.instrument || lastInstrument(),
   };
+  if (isCloud()) take.author = idea && idea.group_id ? (myMember(idea.group_id)?.name || '') : '';
   if (!rec.info) rec.info = await computePeaks(rec.blob);
   take.peaks = rec.info ? rec.info.peaks : [];
   await S.store.saveTake(take, rec.blob);
@@ -584,7 +645,8 @@ async function openSaveSheet(rec, target) {
   const url = URL.createObjectURL(rec.blob);
   const preview = new Audio(url);
   const done = () => { preview.pause(); setTimeout(() => URL.revokeObjectURL(url), 1000); };
-  const hasIdeas = S.ideas.length > 0;
+  const hasIdeas = visibleIdeas().length > 0;
+  rec.instrument = rec.instrument || lastInstrument();
   let step = 'ask';
 
   for (;;) {
@@ -592,6 +654,8 @@ async function openSaveSheet(rec, target) {
       const v = await openSheet(`
         <h2>Prise enregistrée</h2>
         <p class="sub">${fmtDur(rec.duration)} · <button class="txt-btn accent" data-replay>réécouter</button></p>
+        <div class="inst-picker">${INSTRUMENTS.map(i =>
+          `<button class="inst-btn ${i.id === rec.instrument ? 'on' : ''}" data-inst="${i.id}">${i.icon}<span>${i.label}</span></button>`).join('')}</div>
         <p class="ask">Cette prise, c'est…</p>
         <button class="big-choice" data-go="new"><b>Une nouvelle idée</b><span>Le début de quelque chose de nouveau.</span></button>
         ${hasIdeas ? '<button class="big-choice" data-go="suite"><b>La suite d\'une idée</b><span>Elle s’ajoute à une idée que tu as déjà.</span></button>' : ''}
@@ -605,6 +669,13 @@ async function openSaveSheet(rec, target) {
         preview.onplay = () => { replay.textContent = 'pause'; };
         preview.onpause = preview.onended = () => { replay.textContent = 'réécouter'; };
         sh.querySelectorAll('[data-go]').forEach(btn => { btn.onclick = () => close(btn.dataset.go); });
+        sh.querySelectorAll('[data-inst]').forEach(btn => {
+          btn.onclick = () => {
+            rec.instrument = btn.dataset.inst;
+            rememberInstrument(rec.instrument);
+            sh.querySelectorAll('[data-inst]').forEach(x => x.classList.toggle('on', x === btn));
+          };
+        });
       });
       preview.pause();
       if (v === 'new' || v === 'suite') { step = v; continue; }
@@ -673,14 +744,17 @@ async function openSaveSheet(rec, target) {
 
 /* ---------------- Menus ---------------- */
 async function ideaMenu(idea) {
+  const group = groupById(idea.group_id);
   const v = await actionSheet(ideaTitle(idea), [
     { label: 'Renommer', ico: '✎', value: 'rename' },
     { label: 'Étiquettes', ico: '#', value: 'tags', sub: (idea.tags || []).join(', ') },
     { label: idea.notes ? 'Modifier le texte' : 'Écrire un texte', ico: '¶', value: 'notes', sub: 'Paroles, accords, notes' },
     { label: idea.starred ? 'Retirer des favoris' : 'Ajouter aux favoris', ico: '★', value: 'star' },
+    isCloud() && !group && S.groups.length && isMine(idea) && { label: 'Partager avec un groupe', value: 'share', sub: 'Les membres pourront écouter et ajouter' },
+    group && isMine(idea) && { label: `Retirer de « ${group.name} »`, value: 'unshare', sub: 'Elle redevient personnelle' },
     { label: 'Fusionner avec une autre idée', ico: '⇄', value: 'merge', sub: 'Déplace toutes ses prises' },
-    { label: "Supprimer l'idée", ico: '✕', value: 'delete', cls: 'danger', sub: 'Ses prises retournent dans « À trier »' },
-  ]);
+    canDeleteIdea(idea) && { label: "Supprimer l'idée", ico: '✕', value: 'delete', cls: 'danger', sub: group ? 'Chaque prise retourne chez son auteur' : 'Ses prises retournent dans « À trier »' },
+  ].filter(Boolean));
   try {
     if (v === 'rename') return renameIdea(idea);
     if (v === 'star') { idea.starred = !idea.starred; render(); return S.store.saveIdea(idea); }
@@ -692,6 +766,24 @@ async function ideaMenu(idea) {
       if (c) { idea.color = c; render(); await S.store.saveIdea(idea); }
     }
     if (v === 'notes') return editText(idea);
+    if (v === 'share') {
+      const gid = S.groups.length === 1 ? S.groups[0].id : await actionSheet('Partager avec…', S.groups.map(g => ({ label: g.name, value: g.id })));
+      const g = groupById(gid);
+      if (!g) return;
+      if (!(await confirmBox(`Partager avec « ${g.name} » ?`, 'Tous les membres pourront écouter cette idée, y ajouter des prises et modifier son texte.', 'Partager'))) return;
+      idea.group_id = g.id;
+      const name = myMember(g.id)?.name || '';
+      for (const t of takesOf(idea.id)) if (isMine(t) && !t.author) { t.author = name; await S.store.saveTake(t); }
+      await touchIdea(idea);
+      render();
+      toast(`Partagée avec « ${g.name} »`);
+    }
+    if (v === 'unshare') {
+      idea.group_id = null;
+      await S.store.saveIdea(idea);
+      await reload();
+      toast('Idée redevenue personnelle');
+    }
     if (v === 'tags') {
       const sel = [...(idea.tags || [])];
       const ok = await openSheet(`<h2>Étiquettes</h2><div class="tag-picker"></div>
@@ -719,11 +811,13 @@ async function ideaMenu(idea) {
     }
     if (v === 'delete') {
       const n = takesOf(idea.id).length;
-      if (!(await confirmBox("Supprimer l'idée ?", n ? `Ses ${plural(n, 'prise')} retourneront dans « À trier ».` : 'Elle est vide.', 'Supprimer'))) return;
-      for (const t of takesOf(idea.id)) { t.idea_id = null; await S.store.saveTake(t); }
+      const where = idea.group_id ? 'chez leurs auteurs, dans « À trier »' : 'dans « À trier »';
+      if (!(await confirmBox("Supprimer l'idée ?", n ? `Ses ${plural(n, 'prise')} retourneront ${where}.` : 'Elle est vide.', 'Supprimer'))) return;
+      // Dans un groupe, le serveur détache lui-même les prises des autres membres.
+      if (!idea.group_id) for (const t of takesOf(idea.id)) { t.idea_id = null; await S.store.saveTake(t); }
       S.ideas = S.ideas.filter(i => i !== idea);
       await S.store.deleteIdea(idea.id);
-      render();
+      if (idea.group_id) await reload(); else render();
     }
   } catch (e) { fail(e, 'Action impossible'); await reload(); }
 }
@@ -779,15 +873,23 @@ async function renameIdea(idea) {
 async function takeMenu(take) {
   const v = await actionSheet(take.title || 'Prise', [
     { label: 'Renommer', ico: '✎', value: 'rename' },
+    { label: 'Instrument', value: 'instrument', sub: instrumentOf(take.instrument)?.label || 'Non précisé' },
     { label: 'Note', ico: '¶', value: 'note' },
     { label: 'Déplacer vers…', ico: '↳', value: 'move' },
     { label: 'Télécharger', ico: '↓', value: 'download' },
-    { label: 'Supprimer', ico: '✕', value: 'delete', cls: 'danger' },
-  ]);
+    canDeleteTake(take) && { label: 'Supprimer', ico: '✕', value: 'delete', cls: 'danger' },
+  ].filter(Boolean));
   try {
     if (v === 'rename') {
       const n = await promptText('Nom de la prise', take.title);
       if (n !== null && n !== undefined) { take.title = n; await S.store.saveTake(take); render(); }
+    }
+    if (v === 'instrument') {
+      const picked = await openSheet(`<h2>Instrument</h2>
+        <div class="inst-picker">${INSTRUMENTS.map(i =>
+          `<button class="inst-btn ${i.id === take.instrument ? 'on' : ''}" data-inst="${i.id}">${i.icon}<span>${i.label}</span></button>`).join('')}</div>`,
+      (sh, close) => sh.querySelectorAll('[data-inst]').forEach(b => { b.onclick = () => close(b.dataset.inst); }));
+      if (picked) { take.instrument = picked; rememberInstrument(picked); render(); await S.store.saveTake(take); }
     }
     if (v === 'note') {
       const n = await promptText('Note', take.notes, { multiline: true });
@@ -812,6 +914,106 @@ async function takeMenu(take) {
       await S.store.deleteTake(take);
       S.takes = S.takes.filter(t => t !== take);
       render();
+    }
+  } catch (e) { fail(e, 'Action impossible'); await reload(); }
+}
+
+/* ---------------- Groupes ---------------- */
+function nameField(value) {
+  return `<label class="label" for="gWho">Ton prénom dans le groupe</label>
+    <input class="field" id="gWho" value="${esc(value)}" placeholder="Ex : Léo" autocomplete="off" maxlength="30">
+    <p class="hint">Il s'affiche à côté des prises que tu enregistres.</p>`;
+}
+
+async function addGroup() {
+  const how = await openSheet(`
+    <h2>Groupe</h2>
+    <p class="sub">Un espace partagé avec tes musiciens.</p>
+    <button class="big-choice" data-go="create"><b>Créer un groupe</b><span>Tu en seras l'admin et tu inviteras les autres.</span></button>
+    <button class="big-choice" data-go="join"><b>Rejoindre un groupe</b><span>Avec le code que l'admin t'a donné.</span></button>`,
+  (sh, close) => sh.querySelectorAll('[data-go]').forEach(b => { b.onclick = () => close(b.dataset.go); }));
+  if (!how) return;
+  const create = how === 'create';
+  const v = await openSheet(`
+    <h2>${create ? 'Créer un groupe' : 'Rejoindre un groupe'}</h2>
+    <label class="label" for="gMain">${create ? 'Nom du groupe' : "Code d'invitation"}</label>
+    <input class="field ${create ? '' : 'code-input'}" id="gMain" placeholder="${create ? 'Ex : Les Nocturnes' : 'Ex : K7M2PQ9X'}" autocomplete="off" maxlength="${create ? 40 : 12}">
+    ${nameField(lastName())}
+    <div class="row"><button class="btn" data-x>Annuler</button><button class="btn primary" data-ok>${create ? 'Créer' : 'Rejoindre'}</button></div>`,
+  (sh, close) => {
+    const main = sh.querySelector('#gMain');
+    const who = sh.querySelector('#gWho');
+    setTimeout(() => main.focus(), 60);
+    sh.querySelector('[data-x]').onclick = () => close(null);
+    sh.querySelector('[data-ok]').onclick = () => {
+      if (!main.value.trim() || !who.value.trim()) { toast('Remplis les deux champs'); return; }
+      close({ main: main.value.trim(), who: who.value.trim() });
+    };
+  });
+  if (!v) return;
+  try { localStorage.setItem('fredon.name', v.who); } catch {}
+  try {
+    const res = create ? await S.store.createGroup(v.main, v.who) : await S.store.joinGroup(v.main, v.who);
+    const gid = create ? res.id : res;
+    await reload();
+    setScope(gid);
+    if (create) manageGroup(gid); else toast(`Bienvenue dans « ${groupById(gid)?.name || 'le groupe'} »`);
+  } catch (e) { fail(e, create ? 'Création impossible' : 'Impossible de rejoindre'); }
+}
+
+async function manageGroup(gid) {
+  const g = groupById(gid);
+  if (!g) return;
+  const admin = isAdmin(gid);
+  const list = membersOf(gid).sort((a, b) => (a.role === 'admin' ? -1 : 1) - (b.role === 'admin' ? -1 : 1) || a.name.localeCompare(b.name, 'fr'));
+  const v = await openSheet(`
+    <h2>${esc(g.name)}</h2>
+    <p class="sub">${plural(list.length, 'membre')} · tu es ${admin ? 'admin' : 'membre'}</p>
+    <label class="label">Code d'invitation</label>
+    <div class="code-row"><span class="code">${esc(g.code)}</span><button class="txt-btn accent" data-copy>copier</button></div>
+    <p class="hint">Tes musiciens ouvrent Rec., touchent « + groupe », puis « Rejoindre un groupe ».</p>
+    <label class="label">Membres</label>
+    <div class="choices">${list.map(m => `
+      <div class="member"><span class="member-name">${esc(m.name || 'Sans nom')}${m.user_id === me() ? ' (toi)' : ''}</span>
+        <span class="member-role">${m.role === 'admin' ? 'admin' : 'membre'}</span>
+        ${admin && m.user_id !== me() ? `<button class="txt-btn danger" data-kick="${m.user_id}">retirer</button>` : ''}</div>`).join('')}</div>
+    <p class="hint">${admin
+      ? "En tant qu'admin, tu peux retirer un membre et supprimer n'importe quelle prise ou idée du groupe."
+      : "En tant que membre, tu peux écouter, enregistrer, modifier les textes et supprimer tes propres prises."}</p>
+    <div class="sheet-foot">${admin
+      ? '<button class="txt-btn" data-do="rename">renommer</button><button class="txt-btn danger" data-do="delete">supprimer le groupe</button>'
+      : '<button class="txt-btn danger" data-do="leave">quitter le groupe</button>'}</div>`,
+  (sh, close) => {
+    sh.querySelector('[data-copy]').onclick = async e => {
+      try { await navigator.clipboard.writeText(g.code); e.target.textContent = 'copié'; } catch { toast(`Code : ${g.code}`); }
+    };
+    sh.querySelectorAll('[data-kick]').forEach(b => { b.onclick = () => close({ kick: b.dataset.kick }); });
+    sh.querySelectorAll('[data-do]').forEach(b => { b.onclick = () => close({ act: b.dataset.do }); });
+  });
+  if (!v) return;
+  try {
+    if (v.kick) {
+      const m = list.find(x => x.user_id === v.kick);
+      if (!(await confirmBox(`Retirer ${m?.name || 'ce membre'} ?`, 'Il ne verra plus les idées du groupe. Ses prises déjà enregistrées restent.', 'Retirer'))) return manageGroup(gid);
+      await S.store.removeMember(gid, v.kick);
+      await reload();
+      return manageGroup(gid);
+    }
+    if (v.act === 'rename') {
+      const name = await promptText('Nom du groupe', g.name);
+      if (name) { await S.store.renameGroup(gid, name); await reload(); }
+    }
+    if (v.act === 'leave') {
+      if (!(await confirmBox(`Quitter « ${g.name} » ?`, 'Tu ne verras plus ses idées. Les prises que tu y as enregistrées restent dans le groupe.', 'Quitter'))) return;
+      await S.store.removeMember(gid, me());
+      setScope('me');
+      await reload();
+    }
+    if (v.act === 'delete') {
+      if (!(await confirmBox(`Supprimer « ${g.name} » ?`, 'Le groupe disparaît pour tous les membres. Chaque idée redevient personnelle, chez la personne qui l\'a créée.', 'Supprimer'))) return;
+      await S.store.deleteGroup(gid);
+      setScope('me');
+      await reload();
     }
   } catch (e) { fail(e, 'Action impossible'); await reload(); }
 }
@@ -1001,16 +1203,17 @@ async function openSettings() {
           <button class="choice" id="migrate"><span class="ico">⇪</span><span>Envoyer les vocaux de cet appareil vers le cloud<small>Pour récupérer ce que tu as enregistré en mode essai</small></span></button>
           <button class="choice danger" id="logout"><span class="ico">⎋</span><span>Se déconnecter</span></button>
         </div>` : `
-        <label class="label" for="cfgUrl">Adresse du projet Supabase</label>
-        <input class="field" id="cfgUrl" placeholder="https://xxxx.supabase.co" value="${esc(cfg.url || '')}" autocomplete="off">
-        <label class="label" for="cfgKey">Clé publique (anon / publishable)</label>
-        <input class="field" id="cfgKey" placeholder="eyJ… ou sb_publishable_…" value="${esc(cfg.key || '')}" autocomplete="off">
         <label class="label" for="cfgEmail">Ton e-mail</label>
         <input class="field" id="cfgEmail" type="email" autocomplete="username">
         <label class="label" for="cfgPass">Mot de passe</label>
         <input class="field" id="cfgPass" type="password" autocomplete="current-password">
-        <div class="row"><button class="btn primary" id="login">Se connecter</button></div>
-        <p class="small-print">Voir le guide <code>LISEZMOI.md</code> pour créer le projet Supabase (gratuit, 5 min).</p>`}
+        <div class="row"><button class="btn" id="signup">Créer un compte</button><button class="btn primary" id="login">Se connecter</button></div>
+        <details class="adv"><summary>Réglages avancés</summary>
+          <label class="label" for="cfgUrl">Adresse du projet Supabase</label>
+          <input class="field" id="cfgUrl" placeholder="https://xxxx.supabase.co" value="${esc(cfg.url || '')}" autocomplete="off">
+          <label class="label" for="cfgKey">Clé publique (anon / publishable)</label>
+          <input class="field" id="cfgKey" placeholder="eyJ… ou sb_publishable_…" value="${esc(cfg.key || '')}" autocomplete="off">
+        </details>`}
     </div>`,
   (sh, close) => {
     const themeBtns = sh.querySelectorAll('[data-theme-pick]');
@@ -1037,35 +1240,48 @@ async function openSettings() {
     });
     show();
     const login = sh.querySelector('#login');
-    if (login) login.onclick = async () => {
+    const signup = sh.querySelector('#signup');
+    const auth = async creating => {
       const url = sh.querySelector('#cfgUrl').value.trim().replace(/\/+$/, '');
       const key = sh.querySelector('#cfgKey').value.trim();
       const email = sh.querySelector('#cfgEmail').value.trim();
       const pass = sh.querySelector('#cfgPass').value;
-      if (!url || !key || !email || !pass) { toast('Remplis les 4 champs'); return; }
-      login.disabled = true;
-      login.textContent = 'Connexion…';
+      if (!url || !key || !email || !pass) { toast('Saisis ton e-mail et ton mot de passe'); return; }
+      if (creating && pass.length < 8) { toast('Choisis un mot de passe de 8 caractères ou plus'); return; }
+      const btn = creating ? signup : login;
+      const label = btn.textContent;
+      login.disabled = signup.disabled = true;
+      btn.textContent = creating ? 'Création…' : 'Connexion…';
       try {
         const cloud = new CloudStore({ url, key });
         await cloud.init();
-        await cloud.signIn(email, pass);
+        if (creating) {
+          const open = await cloud.signUp(email, pass);
+          if (!open) {
+            login.disabled = signup.disabled = false;
+            btn.textContent = label;
+            toast('Compte créé. Ouvre l\'e-mail de confirmation, puis reviens te connecter.');
+            return;
+          }
+        } else await cloud.signIn(email, pass);
         saveConfig({ mode: 'cloud', url, key });
         await useStore(cloud, true);
         setStatus('');
         close();
-        toast('Connecté — tes vocaux sont synchronisés');
-        offerMigration();
+        toast(creating ? 'Compte créé, bienvenue' : 'Connecté — tes vocaux sont synchronisés');
+        if (!creating) offerMigration();
       } catch (e) {
-        login.disabled = false;
-        login.textContent = 'Se connecter';
-        fail(e, 'Connexion impossible');
+        login.disabled = signup.disabled = false;
+        btn.textContent = label;
+        fail(e, creating ? 'Création impossible' : 'Connexion impossible');
       }
     };
+    if (login) { login.onclick = () => auth(false); signup.onclick = () => auth(true); }
     const logout = sh.querySelector('#logout');
     if (logout) logout.onclick = async () => {
       await S.store.signOut();
       close();
-      S.ideas = []; S.takes = [];
+      S.ideas = []; S.takes = []; S.groups = []; S.members = []; S.scope = 'me';
       render();
       setStatus('Déconnecté. Ouvre les réglages pour te reconnecter.');
     };
@@ -1121,11 +1337,19 @@ async function useStore(store, alreadyInit = false) {
 
 async function reload() {
   try {
-    if (S.store.kind === 'cloud' && !S.store.user) { S.ideas = []; S.takes = []; render(); return; }
-    const [ideas, takes] = await Promise.all([S.store.listIdeas(), S.store.listTakes()]);
+    if (S.store.kind === 'cloud' && !S.store.user) { S.ideas = []; S.takes = []; S.groups = []; S.members = []; render(); return; }
+    const cloud = S.store.kind === 'cloud';
+    const [ideas, takes, groups, members] = await Promise.all([
+      S.store.listIdeas(), S.store.listTakes(),
+      cloud ? S.store.listGroups() : [], cloud ? S.store.listMembers() : [],
+    ]);
     S.ideas = ideas || [];
     S.takes = takes || [];
-    if (S.store.kind === 'local') setStatus(S.takes.length ? '' : '');
+    S.groups = (groups || []).sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+    S.members = members || [];
+    let scope = 'me';
+    try { scope = localStorage.getItem('fredon.scope') || 'me'; } catch {}
+    S.scope = cloud && groupById(scope) ? scope : 'me';
     render();
   } catch (e) {
     fail(e, 'Chargement impossible');
@@ -1203,6 +1427,15 @@ function wireUi() {
   $('#importBtn').onclick = () => $('#importInput').click();
   $('#importInput').onchange = e => { const f = e.target.files; if (f && f.length) importFiles(f); e.target.value = ''; };
   $('#search').oninput = e => { S.filter.q = e.target.value; render(); };
+
+  $('#scopes').onclick = e => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    if (b.hasAttribute('data-scope-add')) return addGroup();
+    if (b.hasAttribute('data-scope-manage')) return manageGroup(S.scope);
+    if (b.dataset.scope === S.scope && S.scope !== 'me') return manageGroup(S.scope);
+    setScope(b.dataset.scope);
+  };
 
   $('#filters').onclick = e => {
     const b = e.target.closest('button');

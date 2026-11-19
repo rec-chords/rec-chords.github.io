@@ -109,24 +109,72 @@ class CloudStore {
     if (error) throw error;
     this.user = data.user;
   }
+  // Crée un compte. Renvoie true si la session est ouverte tout de suite,
+  // false s'il faut d'abord confirmer l'adresse par e-mail.
+  async signUp(email, password) {
+    const { data, error } = await this.sb.auth.signUp({
+      email, password, options: { emailRedirectTo: location.origin + location.pathname },
+    });
+    if (error) throw error;
+    this.user = data.session ? data.user : null;
+    return !!data.session;
+  }
   async signOut() { await this.sb.auth.signOut(); this.user = null; }
 
   async _check(p) { const { data, error } = await p; if (error) throw error; return data; }
 
-  listIdeas() { return this._check(this.sb.from('ideas').select('*')); }
-  listTakes() { return this._check(this.sb.from('takes').select('*')); }
-  saveIdea(idea) { return this._check(this.sb.from('ideas').upsert(idea)); }
+  // On retient les lignes déjà sur le serveur : celles-là se modifient (update),
+  // les nouvelles s'ajoutent (insert). Un « upsert » échouerait sur la prise d'un autre membre.
+  _fields(obj, drop) { const o = { ...obj }; for (const k of drop) delete o[k]; return o; }
+
+  async listIdeas() {
+    const rows = await this._check(this.sb.from('ideas').select('*'));
+    this.knownIdeas = new Set(rows.map(r => r.id));
+    return rows;
+  }
+  async listTakes() {
+    const rows = await this._check(this.sb.from('takes').select('*'));
+    this.knownTakes = new Set(rows.map(r => r.id));
+    return rows;
+  }
+  async saveIdea(idea) {
+    this.knownIdeas = this.knownIdeas || new Set();
+    if (this.knownIdeas.has(idea.id)) {
+      return this._check(this.sb.from('ideas').update(this._fields(idea, ['id', 'user_id', 'created_at'])).eq('id', idea.id));
+    }
+    const { error } = await this.sb.from('ideas').insert(this._fields(idea, ['user_id']));
+    this.knownIdeas.add(idea.id);
+    if (error && error.code === '23505') return this.saveIdea(idea); // déjà sur le serveur : on la modifie
+    if (error) { this.knownIdeas.delete(idea.id); throw error; }
+  }
   deleteIdea(id) { return this._check(this.sb.from('ideas').delete().eq('id', id)); }
 
   async saveTake(take, blob) {
+    this.knownTakes = this.knownTakes || new Set();
     if (blob) {
       take.path = `${this.user.id}/${take.id}.${extFor(take.mime)}`;
       await this._check(this.sb.storage.from('takes').upload(take.path, blob, {
         contentType: take.mime || 'audio/webm', upsert: true,
       }));
     }
-    return this._check(this.sb.from('takes').upsert(take));
+    if (this.knownTakes.has(take.id)) {
+      return this._check(this.sb.from('takes').update(this._fields(take, ['id', 'user_id', 'created_at', 'path'])).eq('id', take.id));
+    }
+    const { error } = await this.sb.from('takes').insert(this._fields(take, ['user_id']));
+    this.knownTakes.add(take.id);
+    if (error && error.code === '23505') return this.saveTake(take);
+    if (error) { this.knownTakes.delete(take.id); throw error; }
   }
+
+  /* ----- groupes ----- */
+  listGroups() { return this._check(this.sb.from('groups').select('*')); }
+  listMembers() { return this._check(this.sb.from('group_members').select('*')); }
+  createGroup(name, displayName) { return this._check(this.sb.rpc('create_group', { group_name: name, display_name: displayName })); }
+  joinGroup(code, displayName) { return this._check(this.sb.rpc('join_group', { invite_code: code, display_name: displayName })); }
+  renameGroup(id, name) { return this._check(this.sb.from('groups').update({ name }).eq('id', id)); }
+  deleteGroup(id) { return this._check(this.sb.from('groups').delete().eq('id', id)); }
+  removeMember(groupId, userId) { return this._check(this.sb.from('group_members').delete().eq('group_id', groupId).eq('user_id', userId)); }
+
   async deleteTake(take) {
     if (take.path) await this.sb.storage.from('takes').remove([take.path]);
     return this._check(this.sb.from('takes').delete().eq('id', take.id));
