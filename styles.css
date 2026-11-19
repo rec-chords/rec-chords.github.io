@@ -432,3 +432,20 @@ body.file-drag .block * { pointer-events: none; }
 .nudge { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-top: 18px; }
 .nudge .btn { padding: 10px 10px; flex: none; }
 .nudge b { font: 500 17px var(--mono); min-width: 84px; text-align: center; }
+
+/* ---------------- Couper une prise ---------------- */
+.cut { position: relative; height: 84px; margin-top: 20px; color: var(--muted); touch-action: none; user-select: none; }
+.cut svg { width: 100%; height: 100%; display: block; }
+.cut-off { position: absolute; top: 0; bottom: 0; pointer-events: none; background: color-mix(in srgb, var(--soft) 78%, transparent); }
+.cut-off.l { left: 0; }
+.cut-off.r { right: 0; }
+.cut-pos { display: none; position: absolute; top: 0; bottom: 0; width: 1px; background: var(--text); pointer-events: none; }
+.cut-h { position: absolute; top: -6px; bottom: -6px; width: 32px; margin-left: -16px; padding: 0; border: 0; background: none; cursor: ew-resize; touch-action: none; }
+.cut-h::before { content: ""; position: absolute; left: 15px; top: 0; bottom: 0; width: 2px; background: var(--accent); }
+.cut-h::after { content: ""; position: absolute; left: 10px; top: 50%; width: 12px; height: 28px; margin-top: -14px; border-radius: 4px; background: var(--accent); }
+.cut-rows { display: grid; gap: 10px; margin-top: 20px; }
+.cut-rows > div { display: flex; align-items: center; gap: 10px; }
+.cut-rows span { flex: 1; color: var(--muted); }
+.cut-rows b { font: 500 16px var(--mono); min-width: 70px; text-align: center; }
+.cut-rows .btn { flex: none; padding: 8px 18px; }
+.cut-rows + .hint { margin-bottom: 14px; }

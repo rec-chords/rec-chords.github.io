@@ -87,6 +87,11 @@ const inboxTakes = () => (S.scope !== 'me' ? [] : S.takes.filter(t => (!t.idea_i
 const baseOf = t => { const b = t && t.layer_of ? takeById(t.layer_of) : null; return b && b.idea_id && b.idea_id === t.idea_id && !b.layer_of ? b : null; };
 const layersOf = b => S.takes.filter(t => t.layer_of === b.id && baseOf(t) === b).sort((x, y) => x.position - y.position || x.created_at.localeCompare(y.created_at));
 const fmtMs = ms => `${ms > 0 ? '+' : ms < 0 ? '−' : ''}${Math.abs(Math.round(ms))} ms`;
+// Coupe : rien n'est effacé, on retient où la prise commence et finit (en ms dans le fichier).
+const cutIn = t => Math.max(0, (t.trim_a || 0) / 1000);
+const cutOut = (t, full = t.duration || 0) => (t.trim_b != null && t.trim_b / 1000 < full ? t.trim_b / 1000 : full);
+const lenOf = t => Math.max(0, cutOut(t) - cutIn(t));
+const isCut = t => !!(t.trim_a || t.trim_b != null);
 const ideaTitle = idea => idea.title || `Idée du ${fmtDay(idea.created_at)}`;
 const allTags = () => [...new Set(visibleIdeas().flatMap(i => i.tags || []))].sort((a, b) => a.localeCompare(b, 'fr'));
 const recentIdeas = () => visibleIdeas().sort((a, b) => b.updated_at.localeCompare(a.updated_at));
@@ -96,6 +101,12 @@ const fmtLong = sec => (sec < 60 ? `${Math.round(sec)} s` : sec < 3600 ? `${Math
 
 // Forme d'onde : vraies crêtes si on les a, sinon un motif stable tiré de l'identifiant.
 function wavePeaks(t) {
+  const p = rawPeaks(t);
+  if (!isCut(t) || !t.duration) return p;
+  const a = cutIn(t) / t.duration, b = cutOut(t) / t.duration; // seule la partie gardée est dessinée
+  return p.map((_, i) => p[Math.min(p.length - 1, Math.floor((a + (b - a) * (i + .5) / p.length) * p.length))]);
+}
+function rawPeaks(t) {
   if (Array.isArray(t.peaks) && t.peaks.length) return t.peaks;
   let h = hashOf(t.id);
   const out = [];
@@ -192,7 +203,7 @@ function takeHtml(t, index, inInbox) {
   const title = t.title || (inInbox ? `Vocal du ${fmtDayTime(t.created_at)}` : layer ? `Piste ${instrumentOf(t.instrument)?.label.toLowerCase() || 'ajoutée'}` : `Prise ${index + 1}`);
   const shared = !inInbox && ideaById(t.idea_id)?.group_id;
   const who = shared && t.author ? `${t.author} · ` : '';
-  const meta = inInbox ? fmtDur(t.duration) : `${who}${fmtDay(t.created_at)} · ${fmtDur(t.duration)}`;
+  const meta = inInbox ? fmtDur(lenOf(t)) : `${who}${fmtDay(t.created_at)} · ${fmtDur(lenOf(t))}`;
   const inst = instrumentOf(t.instrument);
   return `<li class="take ${layer ? 'layer' : ''}" data-id="${t.id}">
     <button class="play" data-action="play" data-id="${t.id}" aria-label="Écouter"><span class="num">${layer ? '+' : String(index + 1).padStart(2, '0')}</span><span class="pi">${ICONS.play}</span></button>
@@ -220,7 +231,7 @@ function blockHtml(idea, list) {
     </section>`;
   }
   const tags = idea.tags || [];
-  const total = list.reduce((sum, t) => sum + (t.duration || 0), 0);
+  const total = list.reduce((sum, t) => sum + lenOf(t), 0);
   const sub = [list.length ? `${plural(list.length, 'prise')} · ${fmtDur(total)}` : 'vide', ago(idea.updated_at)].join(' · ');
   const music = [idea.bpm ? `${idea.bpm} bpm` : '', idea.tona || ''].filter(Boolean).join(' · ');
   return `<section class="block" data-drop="${idea.id}">
@@ -252,7 +263,7 @@ function renderHero() {
   if (hero.hidden) return;
   const n = ideas.length;
   const t = takes.length;
-  const total = takes.reduce((sum, x) => sum + (x.duration || 0), 0);
+  const total = takes.reduce((sum, x) => sum + lenOf(x), 0);
   hero.innerHTML = `<p><b>${n}</b> ${n > 1 ? 'idées' : 'idée'} · <b>${t}</b> ${t > 1 ? 'prises' : 'prise'} · <b>${fmtLong(total)}</b></p>`;
 }
 
@@ -317,12 +328,14 @@ async function bufferOf(take) {
 // Programme la lecture d'un groupe de pistes à l'instant t0 ; renvoie la durée totale.
 function scheduleMix(ctx, items, t0) {
   let dur = 0;
-  for (const { buf, offset } of items) {
+  for (const { buf, pos, skip, len } of items) {
+    const lead = Math.max(0, -pos); // ce qui tomberait avant le départ n'est pas joué
+    if (len - lead < .01) continue;
     const src = ctx.createBufferSource();
     src.buffer = buf;
     src.connect(ctx.destination);
-    if (offset >= 0) { src.start(t0 + offset); dur = Math.max(dur, offset + buf.duration); }
-    else if (-offset < buf.duration) { src.start(t0, -offset); dur = Math.max(dur, buf.duration + offset); }
+    src.start(t0 + Math.max(0, pos), skip + lead, len - lead);
+    dur = Math.max(dur, pos + len);
     MIX.sources.push(src);
   }
   return dur;
@@ -330,7 +343,13 @@ function scheduleMix(ctx, items, t0) {
 async function mixItems(baseTake, skipId = null) {
   const takes = [baseTake, ...layersOf(baseTake)].filter(t => t.id !== skipId);
   const bufs = await Promise.all(takes.map(bufferOf));
-  return takes.map((t, i) => ({ take: t, buf: bufs[i], offset: t === baseTake ? 0 : (t.offset_ms || 0) / 1000 }));
+  // Le décalage d'une piste est mesuré entre les deux fichiers entiers : couper l'un ou l'autre ne la décale pas.
+  const b0 = cutIn(baseTake);
+  return takes.map((t, i) => {
+    const skip = Math.min(cutIn(t), bufs[i].duration);
+    const len = Math.max(0, cutOut(t, bufs[i].duration) - skip);
+    return { take: t, buf: bufs[i], skip, len, pos: t === baseTake ? 0 : (t.offset_ms || 0) / 1000 + skip - b0 };
+  });
 }
 function stopMix() {
   for (const src of MIX.sources) { try { src.stop(); } catch {} }
@@ -378,7 +397,7 @@ function updateMixUI() {
     const fill = document.querySelector(`.take[data-id="${it.take.id}"] .w-fill`);
     if (!fill) continue;
     if (!MIX.id) { fill.style.clipPath = ''; continue; }
-    const pct = Math.max(0, Math.min(100, (now - it.offset) / it.buf.duration * 100));
+    const pct = Math.max(0, Math.min(100, (now - it.pos) / (it.len || 1) * 100));
     fill.style.clipPath = `inset(0 ${100 - pct}% 0 0)`;
   }
 }
@@ -396,7 +415,7 @@ function loopAction(action, id) {
   } else if (action === 'loop-a') {
     Object.assign(LOOP, { id, on: true, a: now, b: same && LOOP.b != null && LOOP.b > now + .3 ? LOOP.b : null });
   } else if (action === 'loop-b') {
-    const a = same && LOOP.a != null ? LOOP.a : 0;
+    const a = same && LOOP.a != null ? LOOP.a : cutIn(takeById(id));
     if (now - a < .3) { toast('Passage trop court : laisse jouer un peu avant de marquer la fin.'); return; }
     Object.assign(LOOP, { id, on: true, a, b: now });
     try { audio.currentTime = a; } catch {}
@@ -412,18 +431,19 @@ function updateLoopUI() {
     bLoop.classList.toggle('on', mine);
     bLoop.textContent = mine ? 'boucle ✓' : 'boucle';
     bA.classList.toggle('on', mine && LOOP.a != null);
-    bA.textContent = mine && LOOP.a != null ? `début ${fmtDur(LOOP.a)}` : 'début';
-    bB.classList.toggle('on', mine && LOOP.b != null);
-    bB.textContent = mine && LOOP.b != null ? `fin ${fmtDur(LOOP.b)}` : 'fin';
-    const zone = row.querySelector('.w-loop');
     const take = takeById(row.dataset.id);
     const total = take ? totalOf(take) : 0;
+    const c0 = take ? cutIn(take) : 0, c1 = take ? cutOut(take, total) : 0;
+    bA.textContent = mine && LOOP.a != null ? `début ${fmtDur(LOOP.a - c0)}` : 'début';
+    bB.classList.toggle('on', mine && LOOP.b != null);
+    bB.textContent = mine && LOOP.b != null ? `fin ${fmtDur(LOOP.b - c0)}` : 'fin';
+    const zone = row.querySelector('.w-loop');
     if (zone) {
-      const show = mine && total && (LOOP.a != null || LOOP.b != null);
+      const show = mine && c1 > c0 && (LOOP.a != null || LOOP.b != null);
       zone.style.display = show ? 'block' : 'none';
       if (show) {
-        const a = (LOOP.a || 0) / total * 100;
-        const b = (LOOP.b != null ? LOOP.b : total) / total * 100;
+        const a = Math.max(0, ((LOOP.a != null ? LOOP.a : c0) - c0) / (c1 - c0) * 100);
+        const b = Math.min(100, ((LOOP.b != null ? LOOP.b : c1) - c0) / (c1 - c0) * 100);
         zone.style.left = `${a}%`;
         zone.style.width = `${Math.max(.5, b - a)}%`;
       }
@@ -431,9 +451,14 @@ function updateLoopUI() {
   });
 }
 setInterval(() => {
-  if (LOOP.on && LOOP.id === S.playing && LOOP.b != null && !audio.paused && audio.currentTime >= LOOP.b) {
-    try { audio.currentTime = LOOP.a || 0; } catch {}
+  const take = takeById(S.playing);
+  if (!take || audio.paused) return;
+  if (LOOP.on && LOOP.id === S.playing && LOOP.b != null && audio.currentTime >= LOOP.b) {
+    try { audio.currentTime = LOOP.a != null ? LOOP.a : cutIn(take); } catch {}
+    return;
   }
+  // Prise coupée : on s'arrête à la fin gardée, comme si le fichier finissait là.
+  if (take.trim_b != null && audio.currentTime >= cutOut(take, totalOf(take))) onTakeEnd();
 }, 40);
 
 async function play(id, queue = []) {
@@ -449,6 +474,7 @@ async function play(id, queue = []) {
     S.playing = id;
     S.queue = queue;
     audio.src = await S.store.audioUrl(take);
+    if (cutIn(take)) { try { audio.currentTime = cutIn(take); } catch {} }
     await audio.play();
   } catch (e) {
     S.playing = null;
@@ -477,7 +503,7 @@ async function seek(id, ratio) {
   if (S.playing !== id) await play(id);
   else if (audio.paused) audio.play();
   const total = totalOf(take);
-  if (total) { try { audio.currentTime = ratio * total; } catch {} }
+  if (total) { const a = cutIn(take); try { audio.currentTime = a + ratio * (cutOut(take, total) - a); } catch {} }
 }
 audio.addEventListener('play', updatePlayUI);
 audio.addEventListener('pause', updatePlayUI);
@@ -486,19 +512,23 @@ audio.addEventListener('timeupdate', () => {
   if (!take) return;
   const total = totalOf(take);
   if (!total) return;
-  const pct = Math.min(100, audio.currentTime / total * 100);
+  const a = cutIn(take), b = cutOut(take, total);
+  const pct = Math.max(0, Math.min(100, (audio.currentTime - a) / ((b - a) || 1) * 100));
   document.querySelectorAll(`.take[data-id="${S.playing}"] .w-fill`).forEach(f => { f.style.clipPath = `inset(0 ${100 - pct}% 0 0)`; });
 });
-audio.addEventListener('ended', () => {
-  if (LOOP.on && LOOP.id === S.playing) { // en boucle : on repart du début du passage
-    try { audio.currentTime = LOOP.a || 0; } catch {}
+function onTakeEnd() {
+  const take = takeById(S.playing);
+  if (take && LOOP.on && LOOP.id === S.playing) { // en boucle : on repart du début du passage
+    try { audio.currentTime = LOOP.a != null ? LOOP.a : cutIn(take); } catch {}
     audio.play();
     return;
   }
   const next = S.queue.shift();
   S.playing = null;
+  audio.pause();
   if (next) play(next, S.queue); else updatePlayUI();
-});
+}
+audio.addEventListener('ended', onTakeEnd);
 
 /* ---------------- Feuilles (menus, formulaires) ---------------- */
 let sheetClose = null;
@@ -880,7 +910,7 @@ async function startRecording(targetIdeaId = null, overId = null) {
       const t0 = now + .25;
       scheduleMix(ctx, overItems, t0);
       const latency = (ctx.outputLatency || 0) + (ctx.baseLatency || 0);
-      REC.over = { id: overTake.id, offset_ms: -Math.round((t0 - now + latency) * 1000) };
+      REC.over = { id: overTake.id, offset_ms: Math.round(cutIn(overTake) * 1000) - Math.round((t0 - now + latency) * 1000) };
     };
   }
   recorder.start(1000);
@@ -1109,12 +1139,14 @@ async function ideaMenu(idea) {
     { label: idea.starred ? 'Retirer des favoris' : 'Ajouter aux favoris', ico: '★', value: 'star' },
     isCloud() && !group && S.groups.length && isMine(idea) && { label: 'Partager avec un groupe', value: 'share', sub: 'Les membres pourront écouter et ajouter' },
     group && isMine(idea) && { label: `Retirer de « ${group.name} »`, value: 'unshare', sub: 'Elle redevient personnelle' },
+    takesOf(idea.id).length && { label: 'Exporter pour Reaper', ico: '↓', value: 'export', sub: 'Un fichier WAV par piste, déjà calés, dans un .zip' },
     { label: 'Fusionner avec une autre idée', ico: '⇄', value: 'merge', sub: 'Déplace toutes ses prises' },
     canDeleteIdea(idea) && { label: "Supprimer l'idée", ico: '✕', value: 'delete', cls: 'danger', sub: group ? 'Chaque prise retourne chez son auteur' : 'Ses prises retournent dans « À trier »' },
   ].filter(Boolean));
   try {
     if (v === 'rename') return renameIdea(idea);
     if (v === 'tempo') return editTempo(idea);
+    if (v === 'export') return exportIdea(idea);
     if (v === 'star') { idea.starred = !idea.starred; render(); return S.store.saveIdea(idea); }
     if (v === 'color') {
       const cur = ideaColor(idea);
@@ -1233,12 +1265,13 @@ async function nudgeTake(take) {
   const baseTake = baseOf(take);
   if (!baseTake) return;
   const before = take.offset_ms || 0;
+  const zero = Math.round(cutIn(baseTake) * 1000); // on affiche l'écart par rapport au début gardé de la prise
   const v = await openSheet(`
     <h2>Recaler la piste</h2>
     <p class="sub">Si elle arrive en retard sur l'autre, avance-la. Si elle arrive en avance, retarde-la.</p>
     <div class="nudge">
       <button class="btn" data-d="-50">−50</button><button class="btn" data-d="-10">−10</button>
-      <b id="nudgeVal">${fmtMs(before)}</b>
+      <b id="nudgeVal">${fmtMs(before - zero)}</b>
       <button class="btn" data-d="10">+10</button><button class="btn" data-d="50">+50</button>
     </div>
     <p class="hint">Moins = plus tôt. Plus = plus tard.</p>
@@ -1249,8 +1282,8 @@ async function nudgeTake(take) {
     const restart = async () => { stopMix(); await playMix(baseTake.id); listen.textContent = MIX.id ? 'Arrêter' : 'Écouter ensemble'; };
     sh.querySelectorAll('[data-d]').forEach(b => {
       b.onclick = () => {
-        take.offset_ms = Math.max(-2000, Math.min(2000, (take.offset_ms || 0) + Number(b.dataset.d)));
-        sh.querySelector('#nudgeVal').textContent = fmtMs(take.offset_ms);
+        take.offset_ms = Math.max(before - 2000, Math.min(before + 2000, (take.offset_ms || 0) + Number(b.dataset.d)));
+        sh.querySelector('#nudgeVal').textContent = fmtMs(take.offset_ms - zero);
         if (MIX.id) restart();
       };
     });
@@ -1271,7 +1304,8 @@ async function takeMenu(take) {
     { label: 'Instrument', value: 'instrument', sub: instrumentOf(take.instrument)?.label || 'Non précisé' },
     { label: 'Note', ico: '¶', value: 'note' },
     take.idea_id && ideaById(take.idea_id) && { label: 'Enregistrer par-dessus', ico: '+', value: 'over', sub: 'Tu joues en écoutant cette prise, au casque' },
-    baseOf(take) && { label: 'Recaler la piste', ico: '↔', value: 'nudge', sub: `Décalage : ${fmtMs(take.offset_ms || 0)}` },
+    baseOf(take) && { label: 'Recaler la piste', ico: '↔', value: 'nudge', sub: `Décalage : ${fmtMs((take.offset_ms || 0) - Math.round(cutIn(baseOf(take)) * 1000))}` },
+    { label: 'Couper le début et la fin', ico: '✂', value: 'cut', sub: isCut(take) ? `Garde ${fmtDur(lenOf(take))} sur ${fmtDur(take.duration)}` : '' },
     { label: 'Déplacer vers…', ico: '↳', value: 'move' },
     { label: 'Télécharger', ico: '↓', value: 'download' },
     canDeleteTake(take) && { label: 'Supprimer', ico: '✕', value: 'delete', cls: 'danger' },
@@ -1290,6 +1324,7 @@ async function takeMenu(take) {
     }
     if (v === 'over') return startRecording(take.idea_id, (baseOf(take) || take).id);
     if (v === 'nudge') return nudgeTake(take);
+    if (v === 'cut') return cutTake(take);
     if (v === 'note') {
       const n = await promptText('Note', take.notes, { multiline: true });
       if (n !== null && n !== undefined) { take.notes = n; await S.store.saveTake(take); render(); }
@@ -1315,6 +1350,222 @@ async function takeMenu(take) {
       render();
     }
   } catch (e) { fail(e, 'Action impossible'); await reload(); }
+}
+
+/* ---------------- Coupe et export ---------------- */
+const fmtT = s => { s = Math.max(0, s); return `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, '0')}`; };
+
+// Couper le début et la fin d'une prise. Le fichier n'est pas touché : on retient deux repères.
+async function cutTake(take) {
+  const full = take.duration || 0;
+  if (full < 1) { toast('Prise trop courte pour être coupée.'); return; }
+  const before = { a: take.trim_a || 0, b: take.trim_b ?? null };
+  let a = cutIn(take), b = cutOut(take);
+  const stopListen = () => { if (S.playing === take.id) { audio.pause(); S.playing = null; updatePlayUI(); } };
+  audio.pause(); S.playing = null; stopMix(); updatePlayUI();
+  const v = await openSheet(`
+    <h2>Couper le début et la fin</h2>
+    <p class="sub">Fais glisser les deux poignées. Rien n'est effacé : tu peux revenir en arrière quand tu veux.</p>
+    <div class="cut">${waveSvg({ ...take, trim_a: 0, trim_b: null }, 'w-base')}<i class="cut-off l"></i><i class="cut-off r"></i><i class="cut-pos"></i>
+      <button class="cut-h" data-h="a" aria-label="Début"></button><button class="cut-h" data-h="b" aria-label="Fin"></button></div>
+    <div class="cut-rows">
+      <div><span>Début</span><button class="btn" data-n="a" data-d="-0.1">−</button><b id="cutA"></b><button class="btn" data-n="a" data-d="0.1">+</button></div>
+      <div><span>Fin</span><button class="btn" data-n="b" data-d="-0.1">−</button><b id="cutB"></b><button class="btn" data-n="b" data-d="0.1">+</button></div>
+    </div>
+    <p class="hint"><span id="cutLen"></span> · <button class="txt-btn" data-all>tout garder</button></p>
+    <button class="btn" data-listen style="width:100%">Écouter le résultat</button>
+    <div class="row"><button class="btn" data-x>Annuler</button><button class="btn primary" data-ok>Enregistrer</button></div>`,
+  (sh, close) => {
+    const box = sh.querySelector('.cut');
+    const listen = sh.querySelector('[data-listen]');
+    const playing = () => S.playing === take.id && !audio.paused;
+    const start = () => { audio.pause(); S.playing = null; play(take.id); };
+    const apply = () => {
+      a = Math.max(0, Math.min(a, full - .3));
+      b = Math.max(a + .3, Math.min(b, full));
+      take.trim_a = a < .05 ? 0 : Math.round(a * 1000);
+      take.trim_b = b > full - .05 ? null : Math.round(b * 1000);
+      sh.querySelector('.cut-off.l').style.width = `${a / full * 100}%`;
+      sh.querySelector('.cut-off.r').style.width = `${(1 - b / full) * 100}%`;
+      sh.querySelector('[data-h="a"]').style.left = `${a / full * 100}%`;
+      sh.querySelector('[data-h="b"]').style.left = `${b / full * 100}%`;
+      sh.querySelector('#cutA').textContent = fmtT(a);
+      sh.querySelector('#cutB').textContent = fmtT(b);
+      sh.querySelector('#cutLen').textContent = `Il reste ${fmtT(b - a)} sur ${fmtT(full)}`;
+    };
+    apply();
+    sh.querySelectorAll('.cut-h').forEach(h => {
+      let was = false;
+      h.onpointerdown = e => { e.preventDefault(); h.setPointerCapture(e.pointerId); was = playing(); stopListen(); h.dataset.drag = '1'; };
+      h.onpointermove = e => {
+        if (!h.dataset.drag) return;
+        const r = box.getBoundingClientRect();
+        const t = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * full;
+        if (h.dataset.h === 'a') a = Math.min(t, b - .3); else b = Math.max(t, a + .3);
+        apply();
+      };
+      h.onpointerup = h.onpointercancel = () => { if (!h.dataset.drag) return; delete h.dataset.drag; if (was) start(); };
+    });
+    sh.querySelectorAll('[data-n]').forEach(btn => {
+      btn.onclick = () => {
+        const d = Number(btn.dataset.d);
+        if (btn.dataset.n === 'a') a = Math.min(a + d, b - .3); else b = Math.max(b + d, a + .3);
+        const was = playing();
+        apply();
+        if (was) start();
+      };
+    });
+    sh.querySelector('[data-all]').onclick = () => { stopListen(); a = 0; b = full; apply(); };
+    listen.onclick = () => { if (playing()) stopListen(); else start(); };
+    const pos = sh.querySelector('.cut-pos');
+    const tick = () => {
+      if (!sh.isConnected) return;
+      const on = S.playing === take.id;
+      listen.textContent = on && !audio.paused ? 'Arrêter' : 'Écouter le résultat';
+      pos.style.display = on ? 'block' : 'none';
+      if (on) pos.style.left = `${Math.min(100, audio.currentTime / full * 100)}%`;
+      requestAnimationFrame(tick);
+    };
+    tick();
+    sh.querySelector('[data-x]').onclick = () => close('cancel');
+    sh.querySelector('[data-ok]').onclick = () => close('ok');
+  });
+  stopListen();
+  const restore = () => { take.trim_a = before.a; take.trim_b = before.b; };
+  if (v !== 'ok') { restore(); return; }
+  if ((take.trim_a || 0) === before.a && (take.trim_b ?? null) === before.b) return;
+  try { await S.store.saveTake(take); render(); toast(isCut(take) ? 'Prise coupée' : 'Prise entière rétablie'); }
+  catch (e) { restore(); render(); fail(e, 'Non enregistré'); }
+}
+
+/*<pur>*/
+// Fichier WAV 16 bits à partir de canaux en nombres flottants.
+function wavBytes(chans, rate) {
+  const n = chans[0].length, c = chans.length;
+  const out = new DataView(new ArrayBuffer(44 + n * c * 2));
+  const str = (o, s) => { for (let i = 0; i < s.length; i++) out.setUint8(o + i, s.charCodeAt(i)); };
+  str(0, 'RIFF'); out.setUint32(4, 36 + n * c * 2, true); str(8, 'WAVE'); str(12, 'fmt ');
+  out.setUint32(16, 16, true); out.setUint16(20, 1, true); out.setUint16(22, c, true);
+  out.setUint32(24, rate, true); out.setUint32(28, rate * c * 2, true); out.setUint16(32, c * 2, true); out.setUint16(34, 16, true);
+  str(36, 'data'); out.setUint32(40, n * c * 2, true);
+  let o = 44;
+  for (let i = 0; i < n; i++) for (let k = 0; k < c; k++) {
+    const v = Math.max(-1, Math.min(1, chans[k][i]));
+    out.setInt16(o, v < 0 ? v * 0x8000 : v * 0x7fff, true);
+    o += 2;
+  }
+  return new Uint8Array(out.buffer);
+}
+let crcTable = null;
+function crc32(u8) {
+  if (!crcTable) {
+    crcTable = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; crcTable[n] = c >>> 0; }
+  }
+  let c = 0xffffffff;
+  for (let i = 0; i < u8.length; i++) c = crcTable[(c ^ u8[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+// Archive .zip sans compression (le son ne se compresse presque pas) : une liste de morceaux à assembler.
+function zipParts(files, date = new Date()) {
+  const enc = new TextEncoder();
+  const time = (date.getHours() << 11) | (date.getMinutes() << 5) | (date.getSeconds() >> 1);
+  const day = ((date.getFullYear() - 1980) << 9) | ((date.getMonth() + 1) << 5) | date.getDate();
+  const parts = [], central = [];
+  let offset = 0;
+  for (const f of files) {
+    const name = enc.encode(f.name);
+    const data = typeof f.data === 'string' ? enc.encode(f.data) : f.data;
+    const crc = crc32(data);
+    const head = new DataView(new ArrayBuffer(30));
+    head.setUint32(0, 0x04034b50, true); head.setUint16(4, 20, true); head.setUint16(6, 0x0800, true); head.setUint16(8, 0, true);
+    head.setUint16(10, time, true); head.setUint16(12, day, true); head.setUint32(14, crc, true);
+    head.setUint32(18, data.length, true); head.setUint32(22, data.length, true); head.setUint16(26, name.length, true);
+    parts.push(new Uint8Array(head.buffer), name, data);
+    const cd = new DataView(new ArrayBuffer(46));
+    cd.setUint32(0, 0x02014b50, true); cd.setUint16(4, 20, true); cd.setUint16(6, 20, true); cd.setUint16(8, 0x0800, true);
+    cd.setUint16(12, time, true); cd.setUint16(14, day, true); cd.setUint32(16, crc, true);
+    cd.setUint32(20, data.length, true); cd.setUint32(24, data.length, true); cd.setUint16(28, name.length, true);
+    cd.setUint32(42, offset, true);
+    central.push(new Uint8Array(cd.buffer), name);
+    offset += 30 + name.length + data.length;
+  }
+  const cdSize = central.reduce((s, p) => s + p.length, 0);
+  const end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true); end.setUint16(8, files.length, true); end.setUint16(10, files.length, true);
+  end.setUint32(12, cdSize, true); end.setUint32(16, offset, true);
+  return [...parts, ...central, new Uint8Array(end.buffer)];
+}
+// Projet Reaper minimal : une piste par fichier, chaque fichier posé à sa place.
+function rppText(tracks, bpm) {
+  const q = s => `"${String(s).replace(/"/g, "'")}"`;
+  const L = ['<REAPER_PROJECT 0.1 "6.0"'];
+  if (bpm) L.push(`  TEMPO ${bpm} 4 4`);
+  for (const t of tracks) {
+    L.push('  <TRACK', `    NAME ${q(t.name)}`, '    <ITEM', `      POSITION ${t.pos.toFixed(6)}`, `      LENGTH ${t.len.toFixed(6)}`,
+      `      NAME ${q(t.name)}`, '      <SOURCE WAVE', `        FILE ${q(t.file)}`, '      >', '    >', '  >');
+  }
+  L.push('>');
+  return L.join('\r\n') + '\r\n';
+}
+/*</pur>*/
+
+// Exporter une idée : un WAV par piste. Les pistes d'un même groupe commencent toutes au même instant.
+async function exportIdea(idea) {
+  const bases = takesOf(idea.id).filter(t => !baseOf(t));
+  if (!bases.length) { toast('Cette idée est vide.'); return; }
+  const clean = s => String(s).replace(/[\\/:*?"<>|]/g, '-').replace(/\s+/g, ' ').trim();
+  try {
+    const files = [], tracks = [];
+    let at = 0;
+    for (const [n, base] of bases.entries()) {
+      setStatus(`Préparation de l'export… ${n + 1}/${bases.length}`);
+      const items = await mixItems(base);
+      const num = String(n + 1).padStart(2, '0');
+      let span = 0, k = 0;
+      for (const it of items) {
+        const lead = Math.max(0, -it.pos), pad = Math.max(0, it.pos);
+        const rate = it.buf.sampleRate;
+        const from = Math.round((it.skip + lead) * rate);
+        const count = Math.min(it.buf.length - from, Math.round((it.len - lead) * rate));
+        if (count < rate * .01) continue;
+        const lag = Math.round(pad * rate);
+        const chans = [];
+        for (let c = 0; c < it.buf.numberOfChannels; c++) {
+          const out = new Float32Array(lag + count);
+          out.set(it.buf.getChannelData(c).subarray(from, from + count), lag);
+          chans.push(out);
+        }
+        const isBase = it.take === base;
+        const inst = instrumentOf(it.take.instrument)?.label;
+        const label = [it.take.title || (isBase ? `Prise ${n + 1}` : 'Piste'), inst, it.take.author].filter(Boolean).join(' - ');
+        const file = clean(`${num}${isBase ? '' : '.' + (++k)} ${label}`) + '.wav';
+        files.push({ name: file, data: wavBytes(chans, rate) });
+        tracks.push({ name: clean(`${num}${isBase ? '' : '.' + k} ${label}`), file, pos: at, len: (lag + count) / rate });
+        span = Math.max(span, (lag + count) / rate);
+      }
+      at = Math.ceil(at + span + 1);
+    }
+    if (!files.length) { setStatus(''); toast('Rien à exporter.'); return; }
+    const title = clean(ideaTitle(idea)) || 'idee';
+    const infos = [ideaTitle(idea), '',
+      idea.bpm ? `Tempo : ${idea.bpm} bpm` : '', idea.tona ? `Tonalité : ${idea.tona}` : '', idea.chords ? `Accords : ${idea.chords}` : '',
+      idea.notes ? `\n${idea.notes}\n` : '',
+      'Dans Reaper : ouvre le fichier .rpp, tout est déjà en place.',
+      'Sinon, glisse les .wav dans ton logiciel. Les fichiers qui portent le même numéro (01, 01.1, 01.2…) vont ensemble :',
+      'aligne-les tous sur le même point de départ et ils sont calés.',
+      '', ...tracks.map(t => `${t.file}   départ ${fmtT(t.pos)}   durée ${fmtT(t.len)}`), ''].filter(l => l !== '').join('\r\n');
+    files.push({ name: `${title}.rpp`, data: rppText(tracks, idea.bpm) });
+    files.push({ name: 'infos.txt', data: infos });
+    const blob = new Blob(zipParts(files), { type: 'application/zip' });
+    setStatus('');
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `${title} - Rec.zip`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 10000);
+    toast(`Export prêt : ${plural(files.length - 2, 'piste')}`);
+  } catch (e) { setStatus(''); fail(e, 'Export impossible'); }
 }
 
 /* ---------------- Groupes ---------------- */

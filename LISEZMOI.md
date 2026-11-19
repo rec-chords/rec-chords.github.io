@@ -23,6 +23,10 @@ dans une **idée** (nouvelle ou suite d'une idée existante). Tu peux glisser le
 - Sur PC, **glisse des fichiers audio** depuis un dossier vers la page : lâche-les sur une idée pour les y ajouter, sur « déposer ici pour une nouvelle idée » pour en créer une, ou ailleurs pour les envoyer dans « À trier ».
 - Sur PC, la **barre d'espace** lance et arrête l'enregistrement.
 - **Apparence** : sombre ou clair, dans les réglages.
+- **Couper une prise** : menu ⋯ de la prise, « Couper le début et la fin ». Le fichier n'est pas modifié, on peut
+  revenir en arrière avec « tout garder ». (Colonnes ajoutées par `supabase-coupe.sql`, déjà exécuté.)
+- **Exporter pour Reaper** : menu ⋯ de l'idée. Un `.zip` avec un WAV par piste, un projet `.rpp` et un `infos.txt`.
+  Les fichiers qui portent le même numéro (01, 01.1, 01.2…) commencent au même instant.
 
 Tant que la synchro n'est pas configurée, l'appli est en **mode essai** : les vocaux restent dans le navigateur de l'appareil.
 
