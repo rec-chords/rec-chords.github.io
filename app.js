@@ -1026,7 +1026,7 @@ const DRAG = { active: false, pending: null };
 function ensureDragZones() {
   const board = $('#board');
   if (!board.querySelector('[data-drop="inbox"]')) board.insertAdjacentHTML('afterbegin', blockHtml(null, []));
-  board.insertAdjacentHTML('beforeend', '<section class="block new-zone" data-drop="new">déposer ici pour une nouvelle idée</section>');
+  if (!board.querySelector('[data-drop="new"]')) board.insertAdjacentHTML('beforeend', '<section class="block new-zone" data-drop="new">déposer ici pour une nouvelle idée</section>');
 }
 
 function beginDrag(p, x, y) {
@@ -1152,27 +1152,95 @@ function probeDuration(file) {
     a.src = url;
   });
 }
-async function importFiles(files) {
-  const list = [...files];
+const isAudioFile = f => /^(audio|video)\//.test(f.type) || /\.(m4a|mp3|wav|ogg|oga|opus|webm|aac|flac|mp4|3gp|amr|aiff?|caf|wma)$/i.test(f.name);
+
+// dest : rien = « À trier », 'new' = nouvelle idée, sinon l'identifiant d'une idée.
+async function importFiles(files, dest) {
+  const list = [...files].filter(isAudioFile);
+  if (!list.length) { toast('Aucun fichier audio'); return; }
+  let idea = null;
+  let created = false;
   let ok = 0;
+  try {
+    if (dest === 'new') {
+      idea = newIdea({ title: list.length === 1 ? list[0].name.replace(/\.[^.]+$/, '') : '' });
+      await saveIdea(idea);
+      created = true;
+    } else if (dest && dest !== 'inbox') idea = ideaById(dest);
+  } catch (e) { fail(e, 'Import impossible'); return; }
+
   for (const [i, f] of list.entries()) {
     setStatus(`Import ${i + 1}/${list.length} : ${f.name}`);
     try {
       const info = await computePeaks(f);
       const take = {
-        id: uid(), idea_id: null, title: f.name.replace(/\.[^.]+$/, ''), notes: '',
+        id: uid(), idea_id: idea ? idea.id : null, title: f.name.replace(/\.[^.]+$/, ''), notes: '',
         duration: info ? info.duration : await probeDuration(f), peaks: info ? info.peaks : [],
-        mime: f.type || 'audio/mp4', path: '', position: 0,
+        mime: f.type || 'audio/mp4', path: '', position: idea ? nextPos(idea.id) : 0,
         created_at: new Date(f.lastModified || Date.now()).toISOString(),
       };
+      if (isCloud()) take.author = idea && idea.group_id ? (myMember(idea.group_id)?.name || '') : '';
       await S.store.saveTake(take, f);
       S.takes.push(take);
       ok++;
     } catch (e) { console.error(e); }
   }
   setStatus('');
+  if (created && !ok) { // rien n'est passé : on ne laisse pas une idée vide
+    S.ideas = S.ideas.filter(x => x !== idea);
+    try { await S.store.deleteIdea(idea.id); } catch {}
+  } else if (idea && ok) { try { await touchIdea(idea); } catch {} }
   render();
-  toast(`${ok} ${ok > 1 ? 'vocaux importés' : 'vocal importé'} dans « À trier »`);
+  if (!ok) { toast('Import impossible'); return; }
+  const where = idea ? `« ${ideaTitle(idea)} »` : '« À trier »';
+  toast(`${ok} ${ok > 1 ? 'vocaux importés' : 'vocal importé'} dans ${where}`);
+  if (created && list.length > 1) {
+    const name = await promptText('Nom de la nouvelle idée', '', { placeholder: 'Ex : balade en La mineur' });
+    if (name) { idea.title = name; await S.store.saveIdea(idea); render(); }
+  }
+}
+
+// Fichiers glissés depuis l'ordinateur : on les lâche sur une idée, sur « À trier »
+// ou sur la zone « nouvelle idée ». Lâchés ailleurs, ils vont dans « À trier ».
+function wireFileDrop() {
+  const hasFiles = e => e.dataTransfer && [...e.dataTransfer.types].includes('Files');
+  let depth = 0;
+  const stop = () => {
+    depth = 0;
+    if (!document.body.classList.contains('file-drag')) return;
+    document.body.classList.remove('file-drag');
+    clearDropMarks();
+    render();
+  };
+  window.addEventListener('dragenter', e => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    depth++;
+    if (document.body.classList.contains('file-drag')) return;
+    document.body.classList.add('file-drag');
+    $('#empty').hidden = true;
+    ensureDragZones();
+  });
+  window.addEventListener('dragover', e => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    clearDropMarks();
+    const block = e.target.closest && e.target.closest('[data-drop]');
+    if (block) block.classList.add('drop-hover');
+    if (e.clientY < 90) window.scrollBy(0, -14);
+    else if (e.clientY > innerHeight - 90) window.scrollBy(0, 14);
+  });
+  window.addEventListener('dragleave', e => { if (hasFiles(e) && --depth <= 0) stop(); });
+  window.addEventListener('drop', e => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    const block = e.target.closest && e.target.closest('[data-drop]');
+    const dest = block ? block.dataset.drop : 'inbox';
+    const files = [...e.dataTransfer.files];
+    stop();
+    if (files.length) importFiles(files, dest);
+  });
 }
 
 /* ---------------- Réglages / synchro ---------------- */
@@ -1495,6 +1563,7 @@ async function boot() {
   initParallax();
   wireUi();
   wireDrag();
+  wireFileDrop();
   const cfg = loadConfig();
   if (cfg.mode === 'cloud' && cfg.url && cfg.key) {
     try {
