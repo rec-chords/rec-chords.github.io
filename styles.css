@@ -423,3 +423,12 @@ body.file-drag .block * { pointer-events: none; }
   background: color-mix(in srgb, var(--accent) 22%, transparent);
   border-left: 1px solid var(--accent); border-right: 1px solid var(--accent);
 }
+
+/* ---------- Pistes superposées ---------- */
+.take.layer { margin-left: 30px; grid-template-columns: 22px 1fr 28px; border-top-style: dashed; }
+.take.layer .play .num { color: var(--accent); }
+.mix-btn { display: inline-block; margin-top: 8px; font-size: 13.5px; color: var(--accent); }
+.mix-btn.on { color: var(--red); }
+.nudge { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-top: 18px; }
+.nudge .btn { padding: 10px 10px; flex: none; }
+.nudge b { font: 500 17px var(--mono); min-width: 84px; text-align: center; }

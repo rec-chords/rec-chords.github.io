@@ -83,6 +83,10 @@ const canDeleteTake = take => isMine(take) || isAdmin(ideaById(take.idea_id)?.gr
 const takeById = id => S.takes.find(t => t.id === id);
 const takesOf = ideaId => S.takes.filter(t => t.idea_id === ideaId).sort((a, b) => a.position - b.position || a.created_at.localeCompare(b.created_at));
 const inboxTakes = () => (S.scope !== 'me' ? [] : S.takes.filter(t => (!t.idea_id || !ideaById(t.idea_id)) && isMine(t)).sort((a, b) => b.created_at.localeCompare(a.created_at)));
+// Une piste « par-dessus » est une prise enregistrée en écoutant une autre prise de la même idée.
+const baseOf = t => { const b = t && t.layer_of ? takeById(t.layer_of) : null; return b && b.idea_id && b.idea_id === t.idea_id && !b.layer_of ? b : null; };
+const layersOf = b => S.takes.filter(t => t.layer_of === b.id && baseOf(t) === b).sort((x, y) => x.position - y.position || x.created_at.localeCompare(y.created_at));
+const fmtMs = ms => `${ms > 0 ? '+' : ms < 0 ? '−' : ''}${Math.abs(Math.round(ms))} ms`;
 const ideaTitle = idea => idea.title || `Idée du ${fmtDay(idea.created_at)}`;
 const allTags = () => [...new Set(visibleIdeas().flatMap(i => i.tags || []))].sort((a, b) => a.localeCompare(b, 'fr'));
 const recentIdeas = () => visibleIdeas().sort((a, b) => b.updated_at.localeCompare(a.updated_at));
@@ -183,17 +187,20 @@ function renderFilters() {
 }
 
 function takeHtml(t, index, inInbox) {
-  const title = t.title || (inInbox ? `Vocal du ${fmtDayTime(t.created_at)}` : `Prise ${index + 1}`);
+  const layer = !inInbox && baseOf(t);
+  const layers = !inInbox && !layer ? layersOf(t) : [];
+  const title = t.title || (inInbox ? `Vocal du ${fmtDayTime(t.created_at)}` : layer ? `Piste ${instrumentOf(t.instrument)?.label.toLowerCase() || 'ajoutée'}` : `Prise ${index + 1}`);
   const shared = !inInbox && ideaById(t.idea_id)?.group_id;
   const who = shared && t.author ? `${t.author} · ` : '';
   const meta = inInbox ? fmtDur(t.duration) : `${who}${fmtDay(t.created_at)} · ${fmtDur(t.duration)}`;
   const inst = instrumentOf(t.instrument);
-  return `<li class="take" data-id="${t.id}">
-    <button class="play" data-action="play" data-id="${t.id}" aria-label="Écouter"><span class="num">${String(index + 1).padStart(2, '0')}</span><span class="pi">${ICONS.play}</span></button>
+  return `<li class="take ${layer ? 'layer' : ''}" data-id="${t.id}">
+    <button class="play" data-action="play" data-id="${t.id}" aria-label="Écouter"><span class="num">${layer ? '+' : String(index + 1).padStart(2, '0')}</span><span class="pi">${ICONS.play}</span></button>
     <div class="take-main">
       <div class="take-line">${inst ? `<span class="inst" data-inst="${inst.id}" title="${esc(inst.label)}">${inst.icon}</span>` : ''}<span class="take-title">${esc(title)}</span><span class="take-meta">${esc(meta)}</span></div>
       ${t.notes ? `<div class="take-note">${esc(t.notes)}</div>` : ''}
       <div class="wave" data-action="seek" data-id="${t.id}">${waveSvg(t, 'w-base')}${waveSvg(t, 'w-fill')}<i class="w-loop"></i></div>
+      ${layers.length ? `<button class="txt-btn mix-btn" data-action="mix" data-id="${t.id}">écouter ensemble · ${layers.length + 1} pistes</button>` : ''}
       <div class="loopbar">
         <button class="txt-btn" data-action="loop" data-id="${t.id}">boucle</button>
         <button class="txt-btn" data-action="loop-a" data-id="${t.id}">début</button>
@@ -220,14 +227,14 @@ function blockHtml(idea, list) {
     <div class="block-head">
       <h3 class="block-title ${idea.title ? '' : 'placeholder'}" data-action="rename" data-idea="${idea.id}">${esc(ideaTitle(idea))}</h3>
       <button class="star ${idea.starred ? 'on' : ''}" data-action="star" data-idea="${idea.id}" aria-label="Favori">${idea.starred ? '★' : '☆'}</button>
-      ${list.length > 1 ? `<button class="txt-btn" data-action="play-all" data-idea="${idea.id}">écouter</button>` : ''}
+      ${list.filter(t => !baseOf(t)).length > 1 ? `<button class="txt-btn" data-action="play-all" data-idea="${idea.id}">écouter</button>` : ''}
       <button class="mini-btn" data-action="idea-menu" data-idea="${idea.id}" aria-label="Options de l'idée">${ICONS.more}</button>
     </div>
     <p class="block-sub"><span>${esc(sub)}</span>${tags.map(t => `<span class="tag">#${esc(t)}</span>`).join('')}</p>
     ${music ? `<button class="tempo-chip" data-action="tempo" data-idea="${idea.id}" title="Modifier">${esc(music)}</button>` : ''}
     ${idea.chords ? `<div class="chords" data-action="tempo" data-idea="${idea.id}" title="Modifier">${esc(idea.chords)}</div>` : ''}
     ${idea.notes ? `<div class="lyrics" data-action="text" data-idea="${idea.id}" title="Modifier le texte">${esc(idea.notes)}</div>` : ''}
-    <ol class="takes">${list.map((t, i) => takeHtml(t, i, false)).join('')}</ol>
+    <ol class="takes">${(() => { let n = 0; return list.map(t => takeHtml(t, baseOf(t) ? n - 1 : n++, false)).join(''); })()}</ol>
     <div class="block-foot">
       <button class="add-take" data-action="record-into" data-idea="${idea.id}">+ enregistrer une suite</button>
       ${idea.notes ? '' : `<button class="add-take second" data-action="text" data-idea="${idea.id}">+ écrire un texte</button>`}
@@ -288,6 +295,93 @@ function render() {
 /* ---------------- Lecture ---------------- */
 const audio = new Audio();
 audio.preload = 'auto';
+
+/* ---------------- Écoute superposée ---------------- */
+// Toutes les pistes partent ensemble dans le même moteur audio : elles restent calées au millième.
+const MIX = { ctx: null, id: null, sources: [], t0: 0, dur: 0, raf: 0, buffers: new Map() };
+function sharedCtx() {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!MIX.ctx) MIX.ctx = new AC();
+  if (MIX.ctx.state === 'suspended') MIX.ctx.resume();
+  return MIX.ctx;
+}
+async function bufferOf(take) {
+  if (MIX.buffers.has(take.id)) return MIX.buffers.get(take.id);
+  const blob = await S.store.getBlob(take);
+  const data = await blob.arrayBuffer();
+  const ctx = sharedCtx();
+  const buf = await new Promise((res, rej) => ctx.decodeAudioData(data, res, rej));
+  MIX.buffers.set(take.id, buf);
+  return buf;
+}
+// Programme la lecture d'un groupe de pistes à l'instant t0 ; renvoie la durée totale.
+function scheduleMix(ctx, items, t0) {
+  let dur = 0;
+  for (const { buf, offset } of items) {
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.connect(ctx.destination);
+    if (offset >= 0) { src.start(t0 + offset); dur = Math.max(dur, offset + buf.duration); }
+    else if (-offset < buf.duration) { src.start(t0, -offset); dur = Math.max(dur, buf.duration + offset); }
+    MIX.sources.push(src);
+  }
+  return dur;
+}
+async function mixItems(baseTake, skipId = null) {
+  const takes = [baseTake, ...layersOf(baseTake)].filter(t => t.id !== skipId);
+  const bufs = await Promise.all(takes.map(bufferOf));
+  return takes.map((t, i) => ({ take: t, buf: bufs[i], offset: t === baseTake ? 0 : (t.offset_ms || 0) / 1000 }));
+}
+function stopMix() {
+  for (const src of MIX.sources) { try { src.stop(); } catch {} }
+  MIX.sources = [];
+  cancelAnimationFrame(MIX.raf);
+  const was = MIX.id;
+  MIX.id = null;
+  if (was) updateMixUI();
+}
+async function playMix(baseId) {
+  if (MIX.id === baseId) { stopMix(); return; }
+  const baseTake = takeById(baseId);
+  if (!baseTake) return;
+  stopMix();
+  audio.pause();
+  S.playing = null;
+  updatePlayUI();
+  try {
+    setStatus('Préparation des pistes…');
+    const items = await mixItems(baseTake);
+    setStatus('');
+    const ctx = sharedCtx();
+    MIX.t0 = ctx.currentTime + .12;
+    MIX.dur = scheduleMix(ctx, items, MIX.t0);
+    MIX.id = baseId;
+    MIX.items = items;
+    const tick = () => {
+      if (MIX.id !== baseId) return;
+      if (ctx.currentTime > MIX.t0 + MIX.dur + .05) { stopMix(); return; }
+      updateMixUI();
+      MIX.raf = requestAnimationFrame(tick);
+    };
+    tick();
+  } catch (e) { setStatus(''); stopMix(); fail(e, 'Lecture impossible'); }
+}
+function updateMixUI() {
+  document.querySelectorAll('.mix-btn').forEach(b => {
+    const on = MIX.id === b.dataset.id;
+    b.classList.toggle('on', on);
+    const n = b.textContent.match(/\d+ pistes/);
+    b.textContent = `${on ? 'arrêter' : 'écouter ensemble'}${n ? ' · ' + n[0] : ''}`;
+  });
+  const now = MIX.id ? MIX.ctx.currentTime - MIX.t0 : 0;
+  for (const it of MIX.items || []) {
+    const fill = document.querySelector(`.take[data-id="${it.take.id}"] .w-fill`);
+    if (!fill) continue;
+    if (!MIX.id) { fill.style.clipPath = ''; continue; }
+    const pct = Math.max(0, Math.min(100, (now - it.offset) / it.buf.duration * 100));
+    fill.style.clipPath = `inset(0 ${100 - pct}% 0 0)`;
+  }
+}
 
 // Boucle sur la prise en cours : toute la prise, ou un passage entre « début » et « fin ».
 const LOOP = { id: null, on: false, a: null, b: null };
@@ -350,6 +444,7 @@ async function play(id, queue = []) {
   const take = takeById(id);
   if (!take) return;
   resetLoop();
+  stopMix();
   try {
     S.playing = id;
     S.queue = queue;
@@ -593,6 +688,17 @@ async function commitTake(rec, dest, name, tags) {
     instrument: rec.instrument || lastInstrument(),
   };
   if (isCloud()) take.author = idea && idea.group_id ? (myMember(idea.group_id)?.name || '') : '';
+  const over = rec.over && idea ? takeById(rec.over.id) : null;
+  if (over && over.idea_id === idea.id) {
+    take.layer_of = over.id;
+    take.offset_ms = rec.over.offset_ms;
+    // Rangée juste sous sa prise, après les pistes déjà posées dessus.
+    const sibs = takesOf(idea.id);
+    const group = [over, ...layersOf(over)];
+    const last = group.reduce((m, t) => Math.max(m, t.position), over.position);
+    const after = sibs.find(t => t.position > last);
+    take.position = after ? (last + after.position) / 2 : last + 1;
+  }
   if (!rec.info) rec.info = await computePeaks(rec.blob);
   take.peaks = rec.info ? rec.info.peaks : [];
   await S.store.saveTake(take, rec.blob);
@@ -732,8 +838,21 @@ function pickMime() {
   return c.find(m => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(m)) || '';
 }
 
-async function startRecording(targetIdeaId = null) {
+async function startRecording(targetIdeaId = null, overId = null) {
   if (REC.recorder) return;
+  // Par-dessus une prise : on prépare ses pistes avant d'ouvrir le micro, pour partir sans attente.
+  const overTake = overId ? takeById(overId) : null;
+  let overItems = null;
+  if (overTake) {
+    stopMix();
+    audio.pause();
+    try {
+      setStatus('Préparation des pistes…');
+      overItems = await mixItems(overTake);
+      setStatus('');
+    } catch (e) { setStatus(''); fail(e, 'Lecture impossible'); return; }
+    targetIdeaId = overTake.idea_id;
+  }
   const mime = pickMime();
   if (mime === null || !navigator.mediaDevices?.getUserMedia) {
     toast("Ce navigateur ne permet pas d'enregistrer (il faut une page en https).");
@@ -753,6 +872,17 @@ async function startRecording(targetIdeaId = null) {
   Object.assign(REC, { recorder, stream, chunks: [], start: Date.now(), target: targetIdeaId, cancelled: false, levels: [] });
   recorder.ondataavailable = e => { if (e.data && e.data.size) REC.chunks.push(e.data); };
   recorder.onstop = onRecordingStopped;
+  if (overItems) {
+    // Au démarrage réel de l'enregistreur, on lance les pistes et on retient l'écart entre les deux.
+    const ctx = sharedCtx();
+    recorder.onstart = () => {
+      const now = ctx.currentTime;
+      const t0 = now + .25;
+      scheduleMix(ctx, overItems, t0);
+      const latency = (ctx.outputLatency || 0) + (ctx.baseLatency || 0);
+      REC.over = { id: overTake.id, offset_ms: -Math.round((t0 - now + latency) * 1000) };
+    };
+  }
   recorder.start(1000);
 
   try { REC.wake = await navigator.wakeLock?.request('screen'); } catch {}
@@ -767,9 +897,10 @@ async function startRecording(targetIdeaId = null) {
   } catch {}
 
   const idea = ideaById(targetIdeaId);
-  $('#recTarget').textContent = idea ? `Suite de « ${ideaTitle(idea)} »` : '';
+  $('#recTarget').textContent = overTake ? `Par-dessus « ${overTake.title || ideaTitle(idea)} » · au casque` : idea ? `Suite de « ${ideaTitle(idea)} »` : '';
+  document.querySelector('.rec-metro').hidden = !!overTake;
   REC.bpm = (idea && idea.bpm) || savedBpm();
-  REC.metro = savedMetro();
+  REC.metro = !overTake && savedMetro(); // par-dessus une prise, c'est elle qui donne le tempo
   REC.metroUsed = REC.metro;
   syncMetroUI();
   if (REC.metro) startMetro(REC.bpm);
@@ -816,12 +947,13 @@ function stopRecording(cancel = false) {
 function onRecordingStopped() {
   cancelAnimationFrame(REC.raf);
   stopMetro();
+  if (REC.over) stopMix();
   REC.stream.getTracks().forEach(t => t.stop());
   try { REC.ctx && REC.ctx.close(); } catch {}
   try { REC.wake && REC.wake.release(); } catch {}
   $('#recOverlay').hidden = true;
   const type = REC.recorder.mimeType || REC.chunks[0]?.type || 'audio/webm';
-  const result = { blob: new Blob(REC.chunks, { type }), duration: REC.duration, mime: type.split(';')[0], bpm: REC.metroUsed ? REC.bpm : null };
+  const result = { blob: new Blob(REC.chunks, { type }), duration: REC.duration, mime: type.split(';')[0], bpm: REC.metroUsed ? REC.bpm : null, over: REC.over || null };
   const { cancelled, target } = REC;
   for (const k of Object.keys(REC)) delete REC[k];
   if (cancelled) return;
@@ -837,6 +969,31 @@ async function openSaveSheet(rec, target) {
     try { await commitTake(rec, dest, name, tags); return true; }
     catch (e) { fail(e, 'Enregistrement impossible, réessaie'); return false; }
   };
+
+  // Enregistrée par-dessus une prise : on demande seulement l'instrument, ou de la jeter.
+  if (rec.over && takeById(rec.over.id)) {
+    rec.instrument = rec.instrument || lastInstrument();
+    const v = await openSheet(`
+      <h2>Piste enregistrée</h2>
+      <p class="sub">${fmtDur(rec.duration)} · par-dessus « ${esc(takeById(rec.over.id).title || ideaTitle(ideaById(target)))} »</p>
+      <div class="inst-picker">${INSTRUMENTS.map(i =>
+        `<button class="inst-btn ${i.id === rec.instrument ? 'on' : ''}" data-inst="${i.id}">${i.icon}<span>${i.label}</span></button>`).join('')}</div>
+      <div class="row"><button class="btn" data-x>Supprimer</button><button class="btn primary" data-ok>Garder</button></div>`,
+    (sh, close) => {
+      sh.querySelectorAll('[data-inst]').forEach(btn => {
+        btn.onclick = () => {
+          rec.instrument = btn.dataset.inst;
+          rememberInstrument(rec.instrument);
+          sh.querySelectorAll('[data-inst]').forEach(b => b.classList.toggle('on', b === btn));
+        };
+      });
+      sh.querySelector('[data-x]').onclick = () => close('discard');
+      sh.querySelector('[data-ok]').onclick = () => close('ok');
+    });
+    if (v === 'discard') { toast('Piste supprimée'); return; }
+    await save(target);
+    return;
+  }
 
   // Enregistrée depuis « + enregistrer une suite » : on sait déjà où elle va.
   if (ideaById(target) && await save(target)) return;
@@ -1071,11 +1228,50 @@ async function renameIdea(idea) {
   try { await S.store.saveIdea(idea); } catch (e) { fail(e, 'Renommage impossible'); }
 }
 
+// Recaler une piste posée par-dessus une prise : plus tôt ou plus tard, par pas de 10 ms.
+async function nudgeTake(take) {
+  const baseTake = baseOf(take);
+  if (!baseTake) return;
+  const before = take.offset_ms || 0;
+  const v = await openSheet(`
+    <h2>Recaler la piste</h2>
+    <p class="sub">Si elle arrive en retard sur l'autre, avance-la. Si elle arrive en avance, retarde-la.</p>
+    <div class="nudge">
+      <button class="btn" data-d="-50">−50</button><button class="btn" data-d="-10">−10</button>
+      <b id="nudgeVal">${fmtMs(before)}</b>
+      <button class="btn" data-d="10">+10</button><button class="btn" data-d="50">+50</button>
+    </div>
+    <p class="hint">Moins = plus tôt. Plus = plus tard.</p>
+    <button class="btn" data-listen style="width:100%">Écouter ensemble</button>
+    <div class="row"><button class="btn" data-x>Annuler</button><button class="btn primary" data-ok>Enregistrer</button></div>`,
+  (sh, close) => {
+    const listen = sh.querySelector('[data-listen]');
+    const restart = async () => { stopMix(); await playMix(baseTake.id); listen.textContent = MIX.id ? 'Arrêter' : 'Écouter ensemble'; };
+    sh.querySelectorAll('[data-d]').forEach(b => {
+      b.onclick = () => {
+        take.offset_ms = Math.max(-2000, Math.min(2000, (take.offset_ms || 0) + Number(b.dataset.d)));
+        sh.querySelector('#nudgeVal').textContent = fmtMs(take.offset_ms);
+        if (MIX.id) restart();
+      };
+    });
+    listen.onclick = () => { if (MIX.id) { stopMix(); listen.textContent = 'Écouter ensemble'; } else restart(); };
+    sh.querySelector('[data-x]').onclick = () => close('cancel');
+    sh.querySelector('[data-ok]').onclick = () => close('ok');
+  });
+  stopMix();
+  if (v !== 'ok') { take.offset_ms = before; return; }
+  if (take.offset_ms === before) return;
+  try { await S.store.saveTake(take); render(); toast('Piste recalée'); }
+  catch (e) { take.offset_ms = before; fail(e, 'Non enregistré'); }
+}
+
 async function takeMenu(take) {
   const v = await actionSheet(take.title || 'Prise', [
     { label: 'Renommer', ico: '✎', value: 'rename' },
     { label: 'Instrument', value: 'instrument', sub: instrumentOf(take.instrument)?.label || 'Non précisé' },
     { label: 'Note', ico: '¶', value: 'note' },
+    take.idea_id && ideaById(take.idea_id) && { label: 'Enregistrer par-dessus', ico: '+', value: 'over', sub: 'Tu joues en écoutant cette prise, au casque' },
+    baseOf(take) && { label: 'Recaler la piste', ico: '↔', value: 'nudge', sub: `Décalage : ${fmtMs(take.offset_ms || 0)}` },
     { label: 'Déplacer vers…', ico: '↳', value: 'move' },
     { label: 'Télécharger', ico: '↓', value: 'download' },
     canDeleteTake(take) && { label: 'Supprimer', ico: '✕', value: 'delete', cls: 'danger' },
@@ -1092,6 +1288,8 @@ async function takeMenu(take) {
       (sh, close) => sh.querySelectorAll('[data-inst]').forEach(b => { b.onclick = () => close(b.dataset.inst); }));
       if (picked) { take.instrument = picked; rememberInstrument(picked); render(); await S.store.saveTake(take); }
     }
+    if (v === 'over') return startRecording(take.idea_id, (baseOf(take) || take).id);
+    if (v === 'nudge') return nudgeTake(take);
     if (v === 'note') {
       const n = await promptText('Note', take.notes, { multiline: true });
       if (n !== null && n !== undefined) { take.notes = n; await S.store.saveTake(take); render(); }
@@ -1735,13 +1933,14 @@ function wireUi() {
     }
     if (a === 'take-menu') takeMenu(takeById(el.dataset.id));
     if (a === 'loop' || a === 'loop-a' || a === 'loop-b') loopAction(a, el.dataset.id);
+    if (a === 'mix') playMix(el.dataset.id);
     if (a === 'tempo' && idea) editTempo(idea);
     if (a === 'rename' && idea) renameIdea(idea);
     if (a === 'text' && idea) editText(idea);
     if (a === 'idea-menu' && idea) ideaMenu(idea);
     if (a === 'record-into' && idea) startRecording(idea.id);
     if (a === 'play-all' && idea) {
-      const ids = takesOf(idea.id).map(t => t.id);
+      const ids = takesOf(idea.id).filter(t => !baseOf(t)).map(t => t.id); // les pistes superposées ne se lisent pas à la suite
       if (S.playing && ids.includes(S.playing) && !audio.paused) audio.pause(); else play(ids[0], ids.slice(1));
     }
     if (a === 'star' && idea) {

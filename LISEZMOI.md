@@ -19,6 +19,7 @@ dans une **idée** (nouvelle ou suite d'une idée existante). Tu peux glisser le
 - **Tempo, tonalité, accords** : « + tempo et tonalité » sous une idée. Le bouton « Taper » trouve le tempo quand tu appuies en rythme, « Clic » fait entendre le métronome.
 - **Métronome** : sur l'écran d'enregistrement, touche « métronome » (au casque, sinon le clic s'entend dans la prise). Il reprend le tempo de l'idée, et une idée enregistrée au métronome garde ce tempo.
 - **Boucle** : pendant l'écoute d'une prise, « boucle » la répète en entier ; « début » puis « fin » délimitent un passage à répéter.
+- **Enregistrer par-dessus** : menu ⋯ d'une prise, « Enregistrer par-dessus ». Tu joues en l'écoutant (au casque), et ta piste se range juste dessous. « écouter ensemble » lance toutes les pistes en même temps. Si une piste est décalée : menu ⋯ de la piste, « Recaler la piste ».
 - Sur PC, **glisse des fichiers audio** depuis un dossier vers la page : lâche-les sur une idée pour les y ajouter, sur « déposer ici pour une nouvelle idée » pour en créer une, ou ailleurs pour les envoyer dans « À trier ».
 - Sur PC, la **barre d'espace** lance et arrête l'enregistrement.
 - **Apparence** : sombre ou clair, dans les réglages.

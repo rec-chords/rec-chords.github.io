@@ -1,6 +1,6 @@
 // Service worker minimal : rend l'appli installable et l'ouvre même sans réseau.
 // Réseau d'abord (pour toujours avoir la dernière version), cache en secours.
-const CACHE = 'fredon-v20';
+const CACHE = 'fredon-v21';
 const SHELL = ['./', 'index.html', 'styles.css', 'store.js', 'app.js', 'manifest.webmanifest', 'icon.svg', 'icon-192.png'];
 
 self.addEventListener('install', e => {
