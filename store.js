@@ -166,6 +166,11 @@ class CloudStore {
     if (error) { this.knownTakes.delete(take.id); throw error; }
   }
 
+  /* ----- discussion ----- */
+  listComments() { return this._check(this.sb.from('comments').select('*').order('created_at')); }
+  addComment(c) { return this._check(this.sb.from('comments').insert(c).select().single()); }
+  deleteComment(id) { return this._check(this.sb.from('comments').delete().eq('id', id)); }
+
   /* ----- groupes ----- */
   listGroups() { return this._check(this.sb.from('groups').select('*')); }
   listMembers() { return this._check(this.sb.from('group_members').select('*')); }

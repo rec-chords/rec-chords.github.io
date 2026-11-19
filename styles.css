@@ -449,3 +449,18 @@ body.file-drag .block * { pointer-events: none; }
 .cut-rows b { font: 500 16px var(--mono); min-width: 70px; text-align: center; }
 .cut-rows .btn { flex: none; padding: 8px 18px; }
 .cut-rows + .hint { margin-bottom: 14px; }
+
+/* ---------------- Nouveautés et discussion ---------------- */
+.news { flex: none; font: 500 11px/1 var(--mono); color: var(--accent); border: 1px solid var(--accent); padding: 3px 6px; margin: 0 10px 0 0; letter-spacing: .03em; }
+.take-title + .news { margin: 0 0 0 10px; }
+.scope .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-left: 7px; vertical-align: middle; }
+.add-take.hot { color: var(--accent); }
+.talk { display: grid; gap: 16px; max-height: 46dvh; overflow-y: auto; margin-top: 18px; padding-right: 4px; }
+.msg-head { display: flex; align-items: baseline; gap: 10px; font-size: 13px; color: var(--muted); }
+.msg-head b { color: var(--text); font-size: 15px; }
+.msg-head .news { margin: 0; }
+.msg-head .txt-btn { margin-left: auto; font-size: 12px; color: var(--dim); }
+.msg p { margin-top: 4px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.talk-form { display: flex; align-items: flex-end; gap: 10px; margin-top: 18px; }
+.talk-form textarea { flex: 1; min-height: 0; resize: none; }
+.talk-form .btn { flex: none; }

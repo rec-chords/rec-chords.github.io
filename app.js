@@ -13,6 +13,7 @@ const S = {
   takes: [],
   groups: [],
   members: [],
+  comments: [],
   scope: 'me', // 'me' = mes idées, sinon l'identifiant d'un groupe
   filter: { q: '', tags: new Set(), star: false },
   playing: null,
@@ -92,6 +93,21 @@ const cutIn = t => Math.max(0, (t.trim_a || 0) / 1000);
 const cutOut = (t, full = t.duration || 0) => (t.trim_b != null && t.trim_b / 1000 < full ? t.trim_b / 1000 : full);
 const lenOf = t => Math.max(0, cutOut(t) - cutIn(t));
 const isCut = t => !!(t.trim_a || t.trim_b != null);
+// Discussion et nouveautés. « Vu » est retenu sur l'appareil, idée par idée.
+const commentsOf = ideaId => S.comments.filter(c => c.idea_id === ideaId).sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+const SEEN = (() => { try { return JSON.parse(localStorage.getItem('fredon.seen') || '{}'); } catch { return {}; } })();
+const saveSeen = () => { try { localStorage.setItem('fredon.seen', JSON.stringify(SEEN)); } catch {} };
+if (!SEEN._0) { SEEN._0 = new Date().toISOString(); saveSeen(); } // avant cette date, rien n'est « nouveau »
+const markSeen = idea => { SEEN[idea.id] = new Date().toISOString(); saveSeen(); };
+const NO_NEWS = { takes: [], talk: [], idea: false, any: false };
+function newsOf(idea) {
+  if (!idea || !idea.group_id) return NO_NEWS;
+  const since = new Date(SEEN[idea.id] || SEEN._0);
+  const takes = S.takes.filter(t => t.idea_id === idea.id && !isMine(t) && new Date(t.created_at) > since);
+  const talk = S.comments.filter(c => c.idea_id === idea.id && c.user_id !== me() && new Date(c.created_at) > since);
+  const fresh = !SEEN[idea.id] && !isMine(idea) && new Date(idea.updated_at) > since; // idée arrivée dans le groupe
+  return { takes, talk, idea: fresh, any: fresh || takes.length > 0 || talk.length > 0 };
+}
 const ideaTitle = idea => idea.title || `Idée du ${fmtDay(idea.created_at)}`;
 const allTags = () => [...new Set(visibleIdeas().flatMap(i => i.tags || []))].sort((a, b) => a.localeCompare(b, 'fr'));
 const recentIdeas = () => visibleIdeas().sort((a, b) => b.updated_at.localeCompare(a.updated_at));
@@ -205,10 +221,11 @@ function takeHtml(t, index, inInbox) {
   const who = shared && t.author ? `${t.author} · ` : '';
   const meta = inInbox ? fmtDur(lenOf(t)) : `${who}${fmtDay(t.created_at)} · ${fmtDur(lenOf(t))}`;
   const inst = instrumentOf(t.instrument);
+  const isNew = shared && newsOf(ideaById(t.idea_id)).takes.includes(t);
   return `<li class="take ${layer ? 'layer' : ''}" data-id="${t.id}">
     <button class="play" data-action="play" data-id="${t.id}" aria-label="Écouter"><span class="num">${layer ? '+' : String(index + 1).padStart(2, '0')}</span><span class="pi">${ICONS.play}</span></button>
     <div class="take-main">
-      <div class="take-line">${inst ? `<span class="inst" data-inst="${inst.id}" title="${esc(inst.label)}">${inst.icon}</span>` : ''}<span class="take-title">${esc(title)}</span><span class="take-meta">${esc(meta)}</span></div>
+      <div class="take-line">${inst ? `<span class="inst" data-inst="${inst.id}" title="${esc(inst.label)}">${inst.icon}</span>` : ''}<span class="take-title">${esc(title)}</span>${isNew ? '<span class="news">nouveau</span>' : ''}<span class="take-meta">${esc(meta)}</span></div>
       ${t.notes ? `<div class="take-note">${esc(t.notes)}</div>` : ''}
       <div class="wave" data-action="seek" data-id="${t.id}">${waveSvg(t, 'w-base')}${waveSvg(t, 'w-fill')}<i class="w-loop"></i></div>
       ${layers.length ? `<button class="txt-btn mix-btn" data-action="mix" data-id="${t.id}">écouter ensemble · ${layers.length + 1} pistes</button>` : ''}
@@ -233,6 +250,8 @@ function blockHtml(idea, list) {
   const tags = idea.tags || [];
   const total = list.reduce((sum, t) => sum + lenOf(t), 0);
   const sub = [list.length ? `${plural(list.length, 'prise')} · ${fmtDur(total)}` : 'vide', ago(idea.updated_at)].join(' · ');
+  const news = newsOf(idea);
+  const talk = idea.group_id ? commentsOf(idea.id).length : 0;
   const music = [idea.bpm ? `${idea.bpm} bpm` : '', idea.tona || ''].filter(Boolean).join(' · ');
   return `<section class="block" data-drop="${idea.id}">
     <div class="block-head">
@@ -241,7 +260,7 @@ function blockHtml(idea, list) {
       ${list.filter(t => !baseOf(t)).length > 1 ? `<button class="txt-btn" data-action="play-all" data-idea="${idea.id}">écouter</button>` : ''}
       <button class="mini-btn" data-action="idea-menu" data-idea="${idea.id}" aria-label="Options de l'idée">${ICONS.more}</button>
     </div>
-    <p class="block-sub"><span>${esc(sub)}</span>${tags.map(t => `<span class="tag">#${esc(t)}</span>`).join('')}</p>
+    <p class="block-sub">${news.any ? '<span class="news">nouveau</span>' : ''}<span>${esc(sub)}</span>${tags.map(t => `<span class="tag">#${esc(t)}</span>`).join('')}</p>
     ${music ? `<button class="tempo-chip" data-action="tempo" data-idea="${idea.id}" title="Modifier">${esc(music)}</button>` : ''}
     ${idea.chords ? `<div class="chords" data-action="tempo" data-idea="${idea.id}" title="Modifier">${esc(idea.chords)}</div>` : ''}
     ${idea.notes ? `<div class="lyrics" data-action="text" data-idea="${idea.id}" title="Modifier le texte">${esc(idea.notes)}</div>` : ''}
@@ -250,6 +269,7 @@ function blockHtml(idea, list) {
       <button class="add-take" data-action="record-into" data-idea="${idea.id}">+ enregistrer une suite</button>
       ${idea.notes ? '' : `<button class="add-take second" data-action="text" data-idea="${idea.id}">+ écrire un texte</button>`}
       ${music || idea.chords ? '' : `<button class="add-take second" data-action="tempo" data-idea="${idea.id}">+ tempo et tonalité</button>`}
+      ${idea.group_id ? `<button class="add-take second ${news.talk.length ? 'hot' : ''}" data-action="talk" data-idea="${idea.id}">${talk ? `discussion · ${talk}` : '+ discuter'}${news.talk.length ? ` · ${news.talk.length} ${news.talk.length > 1 ? 'nouveaux' : 'nouveau'}` : ''}</button>` : ''}
     </div>
   </section>`;
 }
@@ -274,7 +294,7 @@ function renderScopes() {
   if (nav.hidden) return;
   nav.innerHTML =
     `<button class="scope ${S.scope === 'me' ? 'on' : ''}" data-scope="me">Mes idées</button>` +
-    S.groups.map(g => `<button class="scope ${S.scope === g.id ? 'on' : ''}" data-scope="${g.id}">${esc(g.name)}</button>`).join('') +
+    S.groups.map(g => `<button class="scope ${S.scope === g.id ? 'on' : ''}" data-scope="${g.id}">${esc(g.name)}${S.ideas.some(i => i.group_id === g.id && newsOf(i).any) ? '<i class="dot" title="Du nouveau"></i>' : ''}</button>`).join('') +
     '<button class="scope add" data-scope-add>+ groupe</button>' +
     (S.scope !== 'me' ? '<button class="txt-btn" data-scope-manage>membres</button>' : '');
 }
@@ -1568,6 +1588,80 @@ async function exportIdea(idea) {
   } catch (e) { setStatus(''); fail(e, 'Export impossible'); }
 }
 
+/* ---------------- Discussion d'une idée de groupe ---------------- */
+async function talkSheet(idea) {
+  const fresh = new Set(newsOf(idea).talk.map(c => c.id));
+  let open = true;
+  await openSheet(`
+    <h2>Discussion</h2>
+    <p class="sub">${esc(ideaTitle(idea))}</p>
+    <div class="talk"></div>
+    <div class="talk-form"><textarea class="field" rows="2" maxlength="2000" placeholder="Écrire au groupe…"></textarea><button class="btn primary" data-send>Envoyer</button></div>`,
+  sh => {
+    const box = sh.querySelector('.talk'), area = sh.querySelector('textarea'), send = sh.querySelector('[data-send]');
+    const draw = (down = true) => {
+      const list = commentsOf(idea.id);
+      box.innerHTML = list.length ? list.map(c => `<div class="msg">
+        <div class="msg-head"><b>${esc(c.author || 'Sans nom')}</b><span>${esc(ago(c.created_at))}</span>${fresh.has(c.id) ? '<span class="news">nouveau</span>' : ''}
+          ${c.user_id === me() || isAdmin(idea.group_id) ? `<button class="txt-btn" data-del="${c.id}">effacer</button>` : ''}</div>
+        <p>${esc(c.body)}</p></div>`).join('')
+        : '<p class="hint">Personne n\'a encore écrit. Une remarque sur une prise, une idée de structure, la date de la prochaine répète…</p>';
+      if (down) box.scrollTop = box.scrollHeight;
+    };
+    box.onclick = async e => {
+      const b = e.target.closest('[data-del]');
+      if (!b) return;
+      try { await S.store.deleteComment(b.dataset.del); S.comments = S.comments.filter(c => c.id !== b.dataset.del); draw(false); }
+      catch (err) { fail(err, 'Message non effacé'); }
+    };
+    const post = async () => {
+      const body = area.value.trim();
+      if (!body || send.disabled) return;
+      send.disabled = true;
+      try {
+        const c = await S.store.addComment({ idea_id: idea.id, author: myMember(idea.group_id)?.name || lastName(), body });
+        S.comments.push(c);
+        area.value = '';
+        draw();
+      } catch (err) { fail(err, 'Message non envoyé'); }
+      send.disabled = false;
+    };
+    send.onclick = post;
+    // Sur PC, Entrée envoie (Maj+Entrée pour aller à la ligne). Au doigt, on passe par le bouton.
+    area.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !matchMedia('(pointer: coarse)').matches) { e.preventDefault(); post(); } };
+    draw();
+    // Tant que la discussion est ouverte, on regarde de temps en temps si quelqu'un a répondu.
+    const poll = setInterval(async () => {
+      if (!open) { clearInterval(poll); return; }
+      try {
+        const all = await S.store.listComments();
+        if (open && all.length !== S.comments.length) { S.comments = all; draw(); }
+      } catch {}
+    }, 10000);
+  });
+  open = false;
+  markSeen(idea);
+  render();
+}
+
+// Lien d'invitation : l'adresse de l'appli suivie de ?rejoindre=CODE.
+const inviteLink = code => `${location.origin}${location.pathname}?rejoindre=${encodeURIComponent(code)}`;
+const pendingInvite = () => { try { return localStorage.getItem('fredon.invite') || ''; } catch { return ''; } };
+function catchInvite() {
+  const code = new URLSearchParams(location.search).get('rejoindre');
+  if (!code) return;
+  try { localStorage.setItem('fredon.invite', code.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12)); } catch {}
+  history.replaceState(null, '', location.pathname);
+}
+async function checkInvite() {
+  const code = pendingInvite();
+  if (!code || !isCloud() || sheetClose) return;
+  try { localStorage.removeItem('fredon.invite'); } catch {}
+  const mine = S.groups.find(g => g.code === code);
+  if (mine) { setScope(mine.id); toast(`Tu es déjà dans « ${mine.name} »`); return; }
+  addGroup(code);
+}
+
 /* ---------------- Groupes ---------------- */
 function nameField(value) {
   return `<label class="label" for="gWho">Ton prénom dans le groupe</label>
@@ -1575,8 +1669,8 @@ function nameField(value) {
     <p class="hint">Il s'affiche à côté des prises que tu enregistres.</p>`;
 }
 
-async function addGroup() {
-  const how = await openSheet(`
+async function addGroup(inviteCode = '') {
+  const how = inviteCode ? 'join' : await openSheet(`
     <h2>Groupe</h2>
     <p class="sub">Un espace partagé avec tes musiciens.</p>
     <button class="big-choice" data-go="create"><b>Créer un groupe</b><span>Tu en seras l'admin et tu inviteras les autres.</span></button>
@@ -1586,6 +1680,7 @@ async function addGroup() {
   const create = how === 'create';
   const v = await openSheet(`
     <h2>${create ? 'Créer un groupe' : 'Rejoindre un groupe'}</h2>
+    ${inviteCode ? '<p class="sub">Tu as reçu une invitation. Il ne manque que ton prénom.</p>' : ''}
     <label class="label" for="gMain">${create ? 'Nom du groupe' : "Code d'invitation"}</label>
     <input class="field ${create ? '' : 'code-input'}" id="gMain" placeholder="${create ? 'Ex : Les Nocturnes' : 'Ex : K7M2PQ9X'}" autocomplete="off" maxlength="${create ? 40 : 12}">
     ${nameField(lastName())}
@@ -1593,7 +1688,8 @@ async function addGroup() {
   (sh, close) => {
     const main = sh.querySelector('#gMain');
     const who = sh.querySelector('#gWho');
-    setTimeout(() => main.focus(), 60);
+    if (inviteCode) main.value = inviteCode;
+    setTimeout(() => (inviteCode ? who : main).focus(), 60);
     sh.querySelector('[data-x]').onclick = () => close(null);
     sh.querySelector('[data-ok]').onclick = () => {
       if (!main.value.trim() || !who.value.trim()) { toast('Remplis les deux champs'); return; }
@@ -1621,7 +1717,8 @@ async function manageGroup(gid) {
     <p class="sub">${plural(list.length, 'membre')} · tu es ${admin ? 'admin' : 'membre'}</p>
     <label class="label">Code d'invitation</label>
     <div class="code-row"><span class="code">${esc(g.code)}</span><button class="txt-btn accent" data-copy>copier</button></div>
-    <p class="hint">Tes musiciens ouvrent Rec., touchent « + groupe », puis « Rejoindre un groupe ».</p>
+    <button class="btn" data-link style="width:100%;margin-top:12px">Envoyer le lien d'invitation</button>
+    <p class="hint">Tes musiciens ouvrent le lien, se connectent ou créent leur compte, et arrivent dans le groupe. Sans le lien : « + groupe », « Rejoindre un groupe », puis le code.</p>
     <label class="label">Membres</label>
     <div class="choices">${list.map(m => `
       <div class="member"><span class="member-name">${esc(m.name || 'Sans nom')}${m.user_id === me() ? ' (toi)' : ''}</span>
@@ -1636,6 +1733,11 @@ async function manageGroup(gid) {
   (sh, close) => {
     sh.querySelector('[data-copy]').onclick = async e => {
       try { await navigator.clipboard.writeText(g.code); e.target.textContent = 'copié'; } catch { toast(`Code : ${g.code}`); }
+    };
+    sh.querySelector('[data-link]').onclick = async e => {
+      const url = inviteLink(g.code);
+      if (navigator.share) { try { await navigator.share({ title: 'Rec.', text: `Rejoins « ${g.name} » sur Rec.`, url }); return; } catch (err) { if (err && err.name === 'AbortError') return; } }
+      try { await navigator.clipboard.writeText(url); e.target.textContent = 'Lien copié'; } catch { toast(url); }
     };
     sh.querySelectorAll('[data-kick]').forEach(b => { b.onclick = () => close({ kick: b.dataset.kick }); });
     sh.querySelectorAll('[data-do]').forEach(b => { b.onclick = () => close({ act: b.dataset.do }); });
@@ -1986,6 +2088,7 @@ async function openSettings() {
         await useStore(cloud, true);
         setStatus('');
         close();
+        setTimeout(checkInvite, 300);
         toast(creating ? 'Compte créé, bienvenue' : 'Connecté — tes vocaux sont synchronisés');
         if (!creating) offerMigration();
       } catch (e) {
@@ -2055,12 +2158,14 @@ async function useStore(store, alreadyInit = false) {
 
 async function reload() {
   try {
-    if (S.store.kind === 'cloud' && !S.store.user) { S.ideas = []; S.takes = []; S.groups = []; S.members = []; render(); return; }
+    if (S.store.kind === 'cloud' && !S.store.user) { S.ideas = []; S.takes = []; S.groups = []; S.members = []; S.comments = []; render(); return; }
     const cloud = S.store.kind === 'cloud';
-    const [ideas, takes, groups, members] = await Promise.all([
+    const [ideas, takes, groups, members, comments] = await Promise.all([
       S.store.listIdeas(), S.store.listTakes(),
       cloud ? S.store.listGroups() : [], cloud ? S.store.listMembers() : [],
+      cloud ? S.store.listComments().catch(() => []) : [],
     ]);
+    S.comments = comments || [];
     S.ideas = ideas || [];
     S.takes = takes || [];
     S.groups = (groups || []).sort((a, b) => a.name.localeCompare(b.name, 'fr'));
@@ -2173,10 +2278,14 @@ function wireUi() {
 
   $('#board').onclick = e => {
     if (DRAG.justDropped && Date.now() - DRAG.justDropped < 80) return;
+    // Toucher une idée, c'est l'avoir vue : ses « nouveau » disparaîtront au prochain affichage.
+    const seenIdea = ideaById(e.target.closest('.block')?.dataset.drop);
+    if (seenIdea && newsOf(seenIdea).any) markSeen(seenIdea);
     const el = e.target.closest('[data-action]');
     if (!el) return;
     const a = el.dataset.action;
     const idea = ideaById(el.dataset.idea);
+    if (a === 'talk' && idea) talkSheet(idea);
     if (a === 'play') play(el.dataset.id);
     if (a === 'seek') {
       const r = el.getBoundingClientRect();
@@ -2216,6 +2325,7 @@ function wireUi() {
 
 async function boot() {
   setTheme(currentTheme());
+  catchInvite();
   wireUi();
   wireDrag();
   wireFileDrop();
@@ -2225,7 +2335,7 @@ async function boot() {
       const cloud = new CloudStore(cfg);
       const logged = await cloud.init();
       S.store = cloud;
-      if (!logged) { setStatus('Connecte-toi dans les réglages pour retrouver tes vocaux.'); render(); openSettings(); return; }
+      if (!logged) { setStatus(pendingInvite() ? 'Connecte-toi ou crée ton compte pour rejoindre le groupe.' : 'Connecte-toi dans les réglages pour retrouver tes vocaux.'); render(); openSettings(); return; }
     } catch (e) {
       setStatus(`Synchro indisponible (${e.message}). Mode local en attendant.`);
       S.store = new LocalStore();
@@ -2237,8 +2347,10 @@ async function boot() {
   }
   await reload();
   if (S.store.kind === 'local') {
-    setStatus('Mode essai : les vocaux restent sur cet appareil. La synchro se règle dans « réglages ».');
+    setStatus(pendingInvite() ? 'Pour rejoindre le groupe, choisis « Synchronisé » dans les réglages et connecte-toi.' : 'Mode essai : les vocaux restent sur cet appareil. La synchro se règle dans « réglages ».');
+    if (pendingInvite()) openSettings();
   }
+  checkInvite();
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     // Nouvelle version publiée : on recharge tout seul, sauf en plein enregistrement ou panneau ouvert.
     const had = !!navigator.serviceWorker.controller;

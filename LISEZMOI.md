@@ -25,6 +25,11 @@ dans une **idée** (nouvelle ou suite d'une idée existante). Tu peux glisser le
 - **Apparence** : sombre ou clair, dans les réglages.
 - **Couper une prise** : menu ⋯ de la prise, « Couper le début et la fin ». Le fichier n'est pas modifié, on peut
   revenir en arrière avec « tout garder ». (Colonnes ajoutées par `supabase-coupe.sql`, déjà exécuté.)
+- **Discussion** : dans un groupe, chaque idée a son fil de messages (bouton « discuter » sous l'idée).
+  Table créée par `supabase-discussion.sql`, déjà exécuté.
+- **Nouveau** : une étiquette signale ce que les autres ont ajouté depuis ton dernier passage sur l'idée.
+  C'est retenu sur chaque appareil séparément.
+- **Lien d'invitation** : « membres », puis « Envoyer le lien d'invitation » (adresse de l'appli suivie de `?rejoindre=CODE`).
 - **Exporter pour Reaper** : menu ⋯ de l'idée. Un `.zip` avec un WAV par piste, un projet `.rpp` et un `infos.txt`.
   Les fichiers qui portent le même numéro (01, 01.1, 01.2…) commencent au même instant.
 
