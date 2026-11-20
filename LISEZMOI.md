@@ -34,7 +34,7 @@ dans une **idée** (nouvelle ou suite d'une idée existante). Tu peux glisser le
   C'est retenu sur chaque appareil séparément.
 - **Lien d'invitation** : « membres » affiche le lien, avec un bouton « copier » (adresse de l'appli suivie de `?rejoindre=CODE`).
 - **Chanson sans enregistrement** : « + nouvelle chanson » en haut. On la nomme, on écrit les paroles, puis
-  « + importer des enregistrements » (ou le menu ⋯ de l'idée) y range des fichiers audio de l'appareil.
+  « + importer » (ou le menu ⋯ de l'idée) y range des fichiers audio de l'appareil.
 - **Exporter pour Reaper** : menu ⋯ de l'idée. Un `.zip` avec un WAV par piste, un projet `.rpp` et un `infos.txt`.
   Les fichiers qui portent le même numéro (01, 01.1, 01.2…) commencent au même instant.
 

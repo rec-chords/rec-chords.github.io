@@ -488,3 +488,11 @@ textarea.field.chords-field { font: 500 15px/1.5 var(--mono); white-space: pre; 
 .btn.wide { width: 100%; margin-top: 22px; }
 .invite-foot { display: flex; justify-content: space-between; gap: 16px; margin-top: 18px; }
 .invite-foot .txt-btn:only-child { margin-left: auto; }
+
+/* ---------- Paroles et accords repliés ---------- */
+.lyrics { -webkit-line-clamp: 2; color: var(--muted); }
+.lyrics.open { display: block; overflow: visible; color: var(--text); }
+.chords { max-height: 3em; overflow: hidden; color: var(--muted); }
+.chords.open { max-height: none; overflow-x: auto; overflow-y: hidden; color: var(--text); }
+.fold { display: block; margin-top: 10px; font: 14.5px var(--mono); color: var(--accent); }
+@media (max-width: 520px) { .block-foot { gap: 0 20px; } }

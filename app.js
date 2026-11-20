@@ -246,6 +246,7 @@ function takeHtml(t, index, inInbox) {
   </li>`;
 }
 
+const UNFOLDED = new Set(); // idées dont le texte est déplié
 function blockHtml(idea, list) {
   if (!idea) {
     return `<section class="block inbox" data-drop="inbox">
@@ -260,6 +261,9 @@ function blockHtml(idea, list) {
   const news = newsOf(idea);
   const talk = idea.group_id ? commentsOf(idea.id).length : 0;
   const music = [idea.bpm ? `${idea.bpm} bpm` : '', idea.tona || ''].filter(Boolean).join(' · ');
+  // Paroles et accords repliés par défaut : « tout lire » les déplie, idée par idée.
+  const long = (idea.notes || '').split('\n').length > 2 || (idea.notes || '').length > 90 || (idea.chords || '').split('\n').length > 2;
+  const open = long && UNFOLDED.has(idea.id);
   return `<section class="block" data-drop="${idea.id}">
     <div class="block-head">
       <h3 class="block-title ${idea.title ? '' : 'placeholder'}" data-action="rename" data-idea="${idea.id}">${esc(ideaTitle(idea))}</h3>
@@ -269,12 +273,13 @@ function blockHtml(idea, list) {
     </div>
     <p class="block-sub">${news.any ? '<span class="news">nouveau</span>' : ''}<span>${esc(sub)}</span>${tags.map(t => `<span class="tag">#${esc(t)}</span>`).join('')}</p>
     ${music ? `<button class="tempo-chip" data-action="tempo" data-idea="${idea.id}" title="Modifier">${esc(music)}</button>` : ''}
-    ${idea.chords ? `<div class="chords" data-action="tempo" data-idea="${idea.id}" title="Modifier">${esc(idea.chords)}</div>` : ''}
-    ${idea.notes ? `<div class="lyrics" data-action="text" data-idea="${idea.id}" title="Modifier le texte">${esc(idea.notes)}</div>` : ''}
+    ${idea.chords ? `<div class="chords ${open ? 'open' : ''}" data-action="tempo" data-idea="${idea.id}" title="Modifier">${esc(idea.chords)}</div>` : ''}
+    ${idea.notes ? `<div class="lyrics ${open ? 'open' : ''}" data-action="text" data-idea="${idea.id}" title="Modifier le texte">${esc(idea.notes)}</div>` : ''}
+    ${long ? `<button class="txt-btn fold" data-action="fold" data-idea="${idea.id}">${open ? 'replier' : 'tout lire'}</button>` : ''}
     <ol class="takes">${(() => { let n = 0; return list.map(t => takeHtml(t, baseOf(t) ? n - 1 : n++, false)).join(''); })()}</ol>
     <div class="block-foot">
       <button class="add-take" data-action="record-into" data-idea="${idea.id}">${list.length ? '+ enregistrer une suite' : '+ enregistrer'}</button>
-      ${list.length ? '' : `<button class="add-take second" data-action="import-into" data-idea="${idea.id}">+ importer des enregistrements</button>`}
+      ${list.length ? '' : `<button class="add-take second" data-action="import-into" data-idea="${idea.id}">+ importer</button>`}
       ${idea.notes ? '' : `<button class="add-take second" data-action="text" data-idea="${idea.id}">+ écrire un texte</button>`}
       ${music || idea.chords ? '' : `<button class="add-take second" data-action="tempo" data-idea="${idea.id}">+ tempo et tonalité</button>`}
       ${idea.group_id ? `<button class="add-take second ${news.talk.length ? 'hot' : ''}" data-action="talk" data-idea="${idea.id}">${talk ? `discussion · ${talk}` : '+ discuter'}${news.talk.length ? ` · ${news.talk.length} ${news.talk.length > 1 ? 'nouveaux' : 'nouveau'}` : ''}</button>` : ''}
@@ -2486,6 +2491,7 @@ function wireUi() {
     if (a === 'idea-menu' && idea) ideaMenu(idea);
     if (a === 'record-into' && idea) startRecording(idea.id);
     if (a === 'import-into' && idea) pickImport(idea.id);
+    if (a === 'fold' && idea) { if (!UNFOLDED.delete(idea.id)) UNFOLDED.add(idea.id); render(); }
     if (a === 'play-all' && idea) {
       const ids = takesOf(idea.id).filter(t => !baseOf(t)).map(t => t.id); // les pistes superposées ne se lisent pas à la suite
       if (S.playing && ids.includes(S.playing) && !audio.paused) audio.pause(); else play(ids[0], ids.slice(1));
