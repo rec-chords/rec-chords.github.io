@@ -276,6 +276,12 @@ class CloudStore {
   saveAlbum(a, withCover = false) { return this._check(this.sb.from('albums').update({ name: a.name, kind: a.kind, position: a.position, ...(withCover ? { cover: a.cover || '' } : {}) }).eq('id', a.id)); }
   deleteAlbum(id) { return this._check(this.sb.from('albums').delete().eq('id', id)); }
 
+  /* ----- setlists ----- */
+  listSetlists() { return this._check(this.sb.from('setlists').select('*')); }
+  addSetlist(x) { return this._check(this.sb.from('setlists').insert(x).select().single()); }
+  saveSetlist(x) { return this._check(this.sb.from('setlists').update({ name: x.name, note: x.note || '', items: x.items || [] }).eq('id', x.id)); }
+  deleteSetlist(id) { return this._check(this.sb.from('setlists').delete().eq('id', id)); }
+
   /* ----- discussion ----- */
   listComments() { return this._check(this.sb.from('comments').select('*').order('created_at')); }
   addComment(c) { return this._check(this.sb.from('comments').insert(c).select().single()); }

@@ -12,6 +12,7 @@ const S = {
   ideas: [],
   takes: [],
   groups: [],
+  setlists: [],
   members: [],
   comments: [],
   albums: [],
@@ -350,7 +351,7 @@ function renderHero() {
   const total = takes.reduce((sum, x) => sum + lenOf(x), 0);
   hero.innerHTML = (n || t ? `<p><b>${n}</b> ${n > 1 ? 'idées' : 'idée'} · <b>${t}</b> ${t > 1 ? 'prises' : 'prise'} · <b>${fmtLong(total)}</b></p>` : '') +
     '<button class="txt-btn new-song" id="newSong">+ nouvelle chanson</button>' +
-    (isCloud() ? '<button class="txt-btn new-song" id="newAlbum">+ nouvel album</button>' : '');
+    (isCloud() ? '<button class="txt-btn new-song" id="newAlbum">+ nouvel album</button><button class="txt-btn new-song" id="newSet">+ nouvelle setlist</button>' : '');
 }
 
 // Barre de choix : mes idées, ou celles d'un groupe.
@@ -383,6 +384,7 @@ function render() {
   let inbox = inboxTakes();
   if (f.q) inbox = inbox.filter(t => norm(t.title || fmtDayTime(t.created_at)).includes(norm(f.q)));
   if (inbox.length && !f.star && !f.tags.size) html += blockHtml(null, inbox);
+  if (isCloud() && !f.q && !f.star && !f.tags.size) html += setlistsHtml();
   const byAlbum = albumView();
   board.classList.toggle('albums-view', byAlbum);
   if (byAlbum) html += albumsHtml();
@@ -926,6 +928,281 @@ async function moveSong(id, target) {
     await S.store.saveIdea(idea);
     toast(from === albumId ? 'Ordre modifié' : albumId ? `Rangé dans « ${albumById(albumId).name} »` : 'Sorti de l\'album');
   } catch (e) { fail(e, 'Déplacement impossible'); await reload(); }
+}
+
+/* ---------------- Setlists ---------------- */
+const setById = id => S.setlists.find(x => x.id === id);
+const scopeSets = () => S.setlists.filter(x => (x.group_id || null) === scopeGroup()).sort((a, b) => b.created_at.localeCompare(a.created_at));
+const setSongs = set => (Array.isArray(set.items) ? set.items : []).map(ideaById).filter(i => i && (i.group_id || null) === (set.group_id || null));
+// La prise qui représente un morceau : la plus longue, en général le filage complet.
+const mainTake = idea => takesOf(idea.id).filter(t => !baseOf(t)).reduce((best, t) => (!best || lenOf(t) > lenOf(best) ? t : best), null);
+const setLength = songs => songs.reduce((sum, i) => { const t = mainTake(i); return sum + (t ? lenOf(t) : 0); }, 0);
+const songLine = i => { const t = mainTake(i); return [i.bpm ? `${i.bpm} bpm` : '', i.tona || '', t ? fmtDur(lenOf(t)) : ''].filter(Boolean).join(' · '); };
+
+function setlistsHtml() {
+  return scopeSets().map(set => {
+    const songs = setSongs(set);
+    const open = ALB_OPEN.has(`set:${set.id}`);
+    const dur = setLength(songs);
+    const meta = [set.note, morceaux(songs.length), dur ? `≈ ${fmtLong(dur)}` : ''].filter(Boolean).join(' · ');
+    return `<section class="album setlist ${open ? 'open' : ''}" data-setlist="${set.id}">
+      <div class="album-head" data-action="set-toggle" data-set="${set.id}">
+        <span class="album-kind">Setlist</span>
+        <h2 class="album-name">${esc(set.name)}</h2>
+        <button class="mini-btn" data-action="set-menu" data-set="${set.id}" aria-label="Options de la setlist">${ICONS.more}</button>
+        <p class="album-meta">${esc(meta)}<i class="album-chev">${open ? 'replier' : 'ouvrir'}</i></p>
+      </div>
+      ${open ? `<ol class="songs">${songs.map((i, n) => `<li class="song set-song" data-set-song="${i.id}">
+          <div class="song-row set-row" data-action="set-open" data-set="${set.id}" data-set-idea="${i.id}">
+            <span class="num">${String(n + 1).padStart(2, '0')}</span>
+            <span class="song-title">${esc(ideaTitle(i))}</span>
+            <span class="song-meta">${esc(songLine(i))}</span>
+            <button class="mini-btn" data-action="set-song-menu" data-set="${set.id}" data-set-idea="${i.id}" aria-label="Options du morceau">${ICONS.more}</button>
+          </div></li>`).join('')}</ol>
+        <div class="album-foot"><button class="add-take" data-action="set-add" data-set="${set.id}">+ ajouter des morceaux</button>
+          ${songs.length ? `<button class="add-take" data-action="set-stage" data-set="${set.id}">mode scène</button>` : ''}
+          ${songs.some(mainTake) ? `<button class="add-take" data-action="set-play" data-set="${set.id}">écouter à la suite</button>` : ''}</div>` : ''}
+    </section>`;
+  }).join('');
+}
+
+function setSheet(set) {
+  return openSheet(`<h2>${set ? 'Modifier la setlist' : 'Nouvelle setlist'}</h2>
+    <label class="label" for="sName">Nom</label>
+    <input class="field" id="sName" maxlength="80" autocomplete="off" placeholder="Ex : Concert de décembre" value="${esc(set ? set.name : '')}">
+    <label class="label" for="sNote">Date, lieu (facultatif)</label>
+    <input class="field" id="sNote" maxlength="200" autocomplete="off" placeholder="Ex : 14 déc., 21 h" value="${esc(set ? set.note || '' : '')}">
+    <div class="row"><button class="btn" data-x>Annuler</button><button class="btn primary" data-ok>${set ? 'Enregistrer' : 'Créer'}</button></div>`,
+  (sh, close) => {
+    const name = sh.querySelector('#sName');
+    const note = sh.querySelector('#sNote');
+    setTimeout(() => name.focus(), 60);
+    const ok = () => { if (!name.value.trim()) { toast('Donne un nom à la setlist'); return; } close({ name: name.value.trim(), note: note.value.trim() }); };
+    name.onkeydown = note.onkeydown = e => { if (e.key === 'Enter') ok(); };
+    sh.querySelector('[data-x]').onclick = () => close(null);
+    sh.querySelector('[data-ok]').onclick = ok;
+  });
+}
+const setFail = async (e, what) => { fail(e, isNetErr(e) ? 'Il faut du réseau pour modifier une setlist' : what); await reload(); };
+async function createSet(items = [], from = null) {
+  const v = from || await setSheet(null);
+  if (!v) return;
+  try {
+    const row = await S.store.addSetlist({ name: v.name, note: v.note || '', group_id: scopeGroup(), items });
+    S.setlists.push(row);
+    ALB_OPEN.add(`set:${row.id}`); saveAlbOpen();
+    render();
+    if (!items.length && visibleIdeas().length) fillSet(row);
+  } catch (e) { fail(e, isNetErr(e) ? 'Il faut du réseau pour créer une setlist' : 'Création impossible'); }
+}
+// Cocher les morceaux : ils s'ajoutent dans l'ordre où on les touche.
+async function fillSet(set) {
+  const inSet = new Set(setSongs(set).map(i => i.id));
+  const rank = i => { const a = albumOf(i); return a ? [scopeAlbums().indexOf(a), i.track || 0] : [1e9, 0]; };
+  const list = visibleIdeas().filter(i => !inSet.has(i.id)).sort((a, b) => rank(a)[0] - rank(b)[0] || rank(a)[1] - rank(b)[1] || ideaTitle(a).localeCompare(ideaTitle(b), 'fr'));
+  if (!list.length) { toast(inSet.size ? 'Tous les morceaux sont déjà dans la setlist' : "Il n'y a pas encore de morceau ici"); return; }
+  const sel = new Set();
+  const ok = await openSheet(`<h2>Ajouter à « ${esc(set.name)} »</h2>
+    <p class="sub">Touche les morceaux dans l'ordre où vous les jouez.</p>
+    <div class="choices picks">${list.map(i => `<button class="choice pick" data-pick="${i.id}"><span class="ico"></span><span>${esc(ideaTitle(i))}<small>${esc([albumOf(i)?.name, songLine(i)].filter(Boolean).join(' · '))}</small></span></button>`).join('')}</div>
+    <div class="row"><button class="btn" data-x>Annuler</button><button class="btn primary" data-ok>Ajouter</button></div>`,
+  (sh, close) => {
+    const btn = sh.querySelector('[data-ok]');
+    const paint = () => sh.querySelectorAll('[data-pick]').forEach(b => {
+      const at = [...sel].indexOf(b.dataset.pick);
+      b.classList.toggle('on', at >= 0);
+      b.querySelector('.ico').textContent = at >= 0 ? at + 1 : '';
+    });
+    sh.querySelectorAll('[data-pick]').forEach(b => { b.onclick = () => {
+      if (!sel.delete(b.dataset.pick)) sel.add(b.dataset.pick);
+      paint();
+      btn.textContent = sel.size ? `Ajouter ${morceaux(sel.size)}` : 'Ajouter';
+    }; });
+    sh.querySelector('[data-x]').onclick = () => close(false);
+    btn.onclick = () => close(true);
+  });
+  if (!ok || !sel.size) return;
+  set.items = [...setSongs(set).map(i => i.id), ...sel];
+  ALB_OPEN.add(`set:${set.id}`); saveAlbOpen();
+  render();
+  try { await S.store.saveSetlist(set); toast(`${morceaux(sel.size)} dans « ${set.name} »`); } catch (e) { await setFail(e, 'Ajout impossible'); }
+}
+async function moveSetSong(setId, ideaId, target) {
+  const set = setById(setId);
+  if (!set) return;
+  const ids = setSongs(set).map(i => i.id);
+  const from = ids.indexOf(ideaId);
+  if (from < 0) return;
+  ids.splice(from, 1);
+  let to = typeof target === 'number' ? from + target : ids.indexOf(target.refId) + (target.before ? 0 : 1);
+  if (typeof target !== 'number' && ids.indexOf(target.refId) < 0) return;
+  to = Math.max(0, Math.min(ids.length, to));
+  if (to === from) return;
+  ids.splice(to, 0, ideaId);
+  set.items = ids;
+  render();
+  try { await S.store.saveSetlist(set); } catch (e) { await setFail(e, 'Déplacement impossible'); }
+}
+async function setSongMenu(set, idea) {
+  const ids = setSongs(set).map(i => i.id);
+  const at = ids.indexOf(idea.id);
+  const v = await actionSheet(ideaTitle(idea), [
+    { label: 'Ouvrir en mode scène', value: 'stage' },
+    at > 0 && { label: 'Monter', value: 'up' },
+    at < ids.length - 1 && { label: 'Descendre', value: 'down' },
+    { label: 'Retirer de la setlist', value: 'out', cls: 'danger', sub: 'Le morceau est gardé' },
+  ].filter(Boolean));
+  if (v === 'stage') openStage(set, idea.id);
+  if (v === 'up') moveSetSong(set.id, idea.id, -1);
+  if (v === 'down') moveSetSong(set.id, idea.id, 1);
+  if (v === 'out') {
+    set.items = ids.filter(id => id !== idea.id);
+    render();
+    try { await S.store.saveSetlist(set); } catch (e) { await setFail(e, 'Action impossible'); }
+  }
+}
+const setText = set => [set.name + (set.note ? ` (${set.note})` : ''), '', ...setSongs(set).map((i, n) => `${n + 1}. ${ideaTitle(i)}${[i.tona, i.bpm ? `${i.bpm} bpm` : ''].filter(Boolean).length ? ' : ' + [i.tona, i.bpm ? `${i.bpm} bpm` : ''].filter(Boolean).join(', ') : ''}`)].join('\n');
+async function setMenu(set) {
+  const songs = setSongs(set);
+  const v = await actionSheet(set.name, [
+    { label: 'Ajouter des morceaux', value: 'fill' },
+    songs.length && { label: 'Mode scène', value: 'stage', sub: 'Paroles et accords en grand' },
+    { label: 'Nom, date et lieu', value: 'edit', sub: set.note || '' },
+    songs.length && { label: 'Copier la liste en texte', value: 'copy', sub: 'Pour un message ou une impression' },
+    { label: 'Dupliquer', value: 'dup', sub: 'Pour partir de celle-ci' },
+    (isMine(set) || isAdmin(set.group_id)) && { label: 'Supprimer la setlist', value: 'delete', cls: 'danger', sub: 'Les morceaux sont gardés' },
+  ].filter(Boolean));
+  try {
+    if (v === 'fill') return fillSet(set);
+    if (v === 'stage') return openStage(set);
+    if (v === 'edit') {
+      const e = await setSheet(set);
+      if (!e) return;
+      Object.assign(set, e);
+      render();
+      await S.store.saveSetlist(set);
+    }
+    if (v === 'copy') {
+      try { await navigator.clipboard.writeText(setText(set)); toast('Liste copiée'); }
+      catch { await promptText('Copie ce texte', setText(set), { multiline: true }); }
+    }
+    if (v === 'dup') return createSet(songs.map(i => i.id), { name: `${set.name} (copie)`.slice(0, 80), note: set.note || '' });
+    if (v === 'delete') {
+      if (!(await confirmBox(`Supprimer « ${set.name} » ?`, 'Les morceaux et leurs enregistrements ne sont pas touchés.', 'Supprimer'))) return;
+      await S.store.deleteSetlist(set.id);
+      S.setlists = S.setlists.filter(x => x !== set);
+      ALB_OPEN.delete(`set:${set.id}`); saveAlbOpen();
+      render();
+    }
+  } catch (e) { await setFail(e, 'Action impossible'); }
+}
+function playSet(set) {
+  const ids = setSongs(set).map(mainTake).filter(Boolean).map(t => t.id);
+  if (!ids.length) return;
+  if (S.playing && ids.includes(S.playing) && !audio.paused) audio.pause(); else play(ids[0], ids.slice(1));
+}
+
+/* ----- Mode scène : un morceau à la fois, en grand ----- */
+const STAGE = { on: false, ids: [], at: 0, name: '', lock: null };
+const stageSize = () => { try { return Math.max(.7, Math.min(2, Number(localStorage.getItem('fredon.stageSize')) || 1)); } catch { return 1; } };
+async function keepAwake(on) {
+  try {
+    if (on && !STAGE.lock && navigator.wakeLock) {
+      STAGE.lock = await navigator.wakeLock.request('screen');
+      STAGE.lock.addEventListener('release', () => { STAGE.lock = null; });
+    } else if (!on && STAGE.lock) { const l = STAGE.lock; STAGE.lock = null; await l.release(); }
+  } catch {}
+}
+function stageListenLabel() {
+  const b = document.querySelector('#stage [data-listen]');
+  if (b) b.textContent = S.playing === b.dataset.listen && !audio.paused ? 'pause' : 'écouter';
+}
+function paintStage() {
+  const el = $('#stage');
+  const songs = STAGE.ids.map(ideaById).filter(Boolean);
+  if (!songs.length) return closeStage();
+  STAGE.at = Math.max(0, Math.min(songs.length - 1, STAGE.at));
+  const i = songs[STAGE.at];
+  const prev = songs[STAGE.at - 1];
+  const next = songs[STAGE.at + 1];
+  const take = mainTake(i);
+  const music = [i.bpm ? `${i.bpm} bpm` : '', i.tona || ''].filter(Boolean).join(' · ');
+  el.style.setProperty('--fs', stageSize());
+  el.innerHTML = `<header class="stage-top">
+      <span class="stage-pos">${String(STAGE.at + 1).padStart(2, '0')} / ${String(songs.length).padStart(2, '0')}</span>
+      <span class="stage-set">${esc(STAGE.name)}</span>
+      ${take ? `<button class="txt-btn" data-listen="${take.id}">écouter</button>` : ''}
+      <button class="txt-btn" data-size="-1" aria-label="Texte plus petit">A−</button>
+      <button class="txt-btn" data-size="1" aria-label="Texte plus grand">A+</button>
+      <button class="txt-btn" data-close>fermer</button>
+    </header>
+    <div class="stage-body">
+      <h1 class="stage-title">${esc(ideaTitle(i))}</h1>
+      ${music ? `<p class="stage-music">${esc(music)}</p>` : ''}
+      ${i.chords ? `<div class="stage-chords">${esc(i.chords)}</div>` : ''}
+      ${i.notes ? `<div class="stage-lyrics">${esc(i.notes)}</div>` : ''}
+      ${i.chords || i.notes ? '' : '<p class="stage-none">Pas encore de paroles ni d\'accords pour ce morceau.</p>'}
+    </div>
+    <footer class="stage-nav">
+      <button data-go="-1" ${prev ? '' : 'disabled'}><small>précédent</small>${prev ? esc(ideaTitle(prev)) : '–'}</button>
+      <button data-go="1" ${next ? '' : 'disabled'}><small>suivant</small>${next ? esc(ideaTitle(next)) : 'fin'}</button>
+    </footer>`;
+  stageListenLabel();
+}
+function stageGo(d) {
+  const to = STAGE.at + d;
+  if (to < 0 || to >= STAGE.ids.length) return;
+  if (S.playing && !audio.paused) audio.pause();
+  STAGE.at = to;
+  paintStage();
+}
+function closeStage() {
+  STAGE.on = false;
+  const el = $('#stage');
+  if (el) { el.hidden = true; el.innerHTML = ''; }
+  document.body.classList.remove('staging');
+  if (S.playing && !audio.paused) audio.pause();
+  keepAwake(false);
+}
+function openStage(set, ideaId = null) {
+  const songs = setSongs(set);
+  if (!songs.length) { toast('Cette setlist est vide'); return; }
+  let el = $('#stage');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'stage';
+    el.className = 'stage';
+    document.body.append(el);
+    el.onclick = e => {
+      const b = e.target.closest('button');
+      if (!b) return;
+      if (b.hasAttribute('data-close')) closeStage();
+      if (b.dataset.go) stageGo(+b.dataset.go);
+      if (b.dataset.listen) play(b.dataset.listen);
+      if (b.dataset.size) { try { localStorage.setItem('fredon.stageSize', (stageSize() + .15 * +b.dataset.size).toFixed(2)); } catch {} el.style.setProperty('--fs', stageSize()); }
+    };
+    // Glisser le doigt vers la gauche ou la droite change de morceau.
+    let sx = 0, sy = 0;
+    el.addEventListener('touchstart', e => { sx = e.touches[0].clientX; sy = e.touches[0].clientY; }, { passive: true });
+    el.addEventListener('touchend', e => {
+      const dx = e.changedTouches[0].clientX - sx, dy = e.changedTouches[0].clientY - sy;
+      if (Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy) * 2 && !e.target.closest('.stage-chords')) stageGo(dx < 0 ? 1 : -1);
+    }, { passive: true });
+    document.addEventListener('keydown', e => {
+      if (!STAGE.on || sheetClose) return;
+      if (e.key === 'Escape') closeStage();
+      if (['ArrowRight', 'PageDown'].includes(e.key)) { e.preventDefault(); stageGo(1); }
+      if (['ArrowLeft', 'PageUp'].includes(e.key)) { e.preventDefault(); stageGo(-1); }
+    });
+    document.addEventListener('visibilitychange', () => { if (STAGE.on && document.visibilityState === 'visible') keepAwake(true); });
+    audio.addEventListener('play', stageListenLabel);
+    audio.addEventListener('pause', stageListenLabel);
+  }
+  Object.assign(STAGE, { on: true, ids: songs.map(i => i.id), at: Math.max(0, songs.findIndex(i => i.id === ideaId)), name: set.name });
+  el.hidden = false;
+  document.body.classList.add('staging');
+  paintStage();
+  keepAwake(true);
 }
 
 let importDest = null; // idée qui recevra les fichiers choisis (rien = « À trier »)
@@ -2177,6 +2454,7 @@ function beginDrag(p, x, y) {
   DRAG.offX = x - r.left;
   DRAG.offY = y - r.top;
   DRAG.kind = p.kind || 'take';
+  DRAG.set = p.set || null;
   const g = p.el.cloneNode(true);
   g.classList.add('ghost-drag');
   g.style.width = `${r.width}px`;
@@ -2203,6 +2481,14 @@ function moveDrag(x, y) {
   clearDropMarks();
   DRAG.target = null;
   const under = document.elementFromPoint(x, y);
+  if (DRAG.kind === 'set') { // l'ordre d'une setlist : on reste dans la même liste
+    const row = under && under.closest('.set-song');
+    if (!row || row.closest('[data-setlist]')?.dataset.setlist !== DRAG.set || row.dataset.setSong === DRAG.id) return;
+    const r = row.getBoundingClientRect();
+    DRAG.target = { refId: row.dataset.setSong, before: y < r.top + r.height / 2 };
+    row.classList.add(DRAG.target.before ? 'drop-before' : 'drop-after');
+    return;
+  }
   if (DRAG.kind === 'idea') {
     const sec = under && under.closest('[data-album]');
     if (!sec) return;
@@ -2237,13 +2523,16 @@ function endDrag(cancel = false) {
   DRAG.ghost && DRAG.ghost.remove();
   document.body.classList.remove('dragging');
   clearDropMarks();
-  const { id, target, kind } = DRAG;
+  const { id, target, kind, set } = DRAG;
   Object.assign(DRAG, { active: false, pending: null, ghost: null, el: null, target: null });
   DRAG.justDropped = Date.now();
   render();
-  if (!cancel && target) (kind === 'idea' ? moveSong : moveTake)(id, target);
+  if (!cancel && target && kind === 'set') moveSetSong(set, id, target);
+  else if (!cancel && target) (kind === 'idea' ? moveSong : moveTake)(id, target);
 }
 
+const dragOf = (t, x, y) => ({ id: t.dataset.id || t.dataset.idea || t.dataset.setIdea, set: t.dataset.setIdea ? t.dataset.set : null,
+  kind: t.dataset.setIdea ? 'set' : t.dataset.idea ? 'idea' : 'take', el: t, x, y });
 function wireDrag() {
   const board = $('#board');
   // Souris / stylet
@@ -2251,7 +2540,7 @@ function wireDrag() {
     if (e.pointerType === 'touch' || e.button !== 0) return;
     const t = e.target.closest('.take, .song-row');
     if (!t || e.target.closest('button')) return;
-    DRAG.pending = { id: t.dataset.id || t.dataset.idea, kind: t.dataset.idea ? 'idea' : 'take', el: t, x: e.clientX, y: e.clientY };
+    DRAG.pending = dragOf(t, e.clientX, e.clientY);
   });
   document.addEventListener('pointermove', e => {
     if (e.pointerType === 'touch') return;
@@ -2270,7 +2559,7 @@ function wireDrag() {
     const t = e.target.closest('.take, .song-row');
     if (!t || e.target.closest('button') || e.touches.length > 1) return;
     const pt = e.touches[0];
-    DRAG.pending = { id: t.dataset.id || t.dataset.idea, kind: t.dataset.idea ? 'idea' : 'take', el: t, x: pt.clientX, y: pt.clientY };
+    DRAG.pending = dragOf(t, pt.clientX, pt.clientY);
     clearTimeout(DRAG.timer);
     DRAG.timer = setTimeout(() => {
       const p = DRAG.pending;
@@ -2593,23 +2882,24 @@ setInterval(() => {
 
 async function reload(noSync = false) {
   try {
-    if (S.store.kind === 'cloud' && !S.store.user) { S.ideas = []; S.takes = []; S.groups = []; S.members = []; S.comments = []; S.albums = []; render(); return; }
+    if (S.store.kind === 'cloud' && !S.store.user) { S.ideas = []; S.takes = []; S.groups = []; S.members = []; S.comments = []; S.albums = []; S.setlists = []; render(); return; }
     const cloud = S.store.kind === 'cloud';
-    let ideas, takes, groups, members, comments, albums;
+    let ideas, takes, groups, members, comments, albums, setlists;
     try {
-      [ideas, takes, groups, members, comments, albums] = await Promise.all([
+      [ideas, takes, groups, members, comments, albums, setlists] = await Promise.all([
         S.store.listIdeas(), S.store.listTakes(),
         cloud ? S.store.listGroups() : [], cloud ? S.store.listMembers() : [],
         cloud ? S.store.listComments().catch(e => { if (isNetErr(e)) throw e; return []; }) : [],
         cloud ? S.store.listAlbums().catch(e => { if (isNetErr(e)) throw e; return []; }) : [],
+        cloud ? S.store.listSetlists().catch(e => { if (isNetErr(e)) throw e; return []; }) : [],
       ]);
       S.offline = false;
-      if (cloud) saveSnap({ user: me(), ideas, takes, groups, members, comments, albums });
+      if (cloud) saveSnap({ user: me(), ideas, takes, groups, members, comments, albums, setlists });
     } catch (e) {
       // Pas de réseau : on repart de la dernière copie gardée sur l'appareil.
       const snap = cloud && isNetErr(e) ? loadSnap() : null;
       if (!snap || snap.user !== me()) { if (!cloud || !isNetErr(e)) throw e; }
-      ({ ideas = [], takes = [], groups = [], members = [], comments = [], albums = [] } = snap && snap.user === me() ? snap : {});
+      ({ ideas = [], takes = [], groups = [], members = [], comments = [], albums = [], setlists = [] } = snap && snap.user === me() ? snap : {});
       S.store.assumeKnown(ideas, takes);
       S.offline = true;
     }
@@ -2622,6 +2912,7 @@ async function reload(noSync = false) {
     }
     S.comments = comments || [];
     S.albums = albums || [];
+    S.setlists = setlists || [];
     S.ideas = ideas || [];
     S.takes = takes || [];
     S.groups = (groups || []).sort((a, b) => a.name.localeCompare(b.name, 'fr'));
@@ -2712,7 +3003,7 @@ function wireUi() {
   $('#settingsBtn').onclick = openSettings;
   $('#importBtn').onclick = () => pickImport();
   $('#importInput').onchange = e => { const f = e.target.files; if (f && f.length) importFiles(f, ideaById(importDest) ? importDest : undefined); e.target.value = ''; };
-  $('#hero').onclick = e => { if (e.target.closest('#newSong')) createSong(); if (e.target.closest('#newAlbum')) createAlbum(); };
+  $('#hero').onclick = e => { if (e.target.closest('#newSong')) createSong(); if (e.target.closest('#newAlbum')) createAlbum(); if (e.target.closest('#newSet')) createSet(); };
   $('#search').oninput = e => { S.filter.q = e.target.value; render(); };
 
   $('#scopes').onclick = e => {
@@ -2746,6 +3037,19 @@ function wireUi() {
     const idea = ideaById(el.dataset.idea);
     const albumId = el.dataset.albumId;
     if (a === 'album-toggle') { if (!ALB_OPEN.delete(albumId)) ALB_OPEN.add(albumId); else if (tracksOf(albumId === 'none' ? null : albumId).some(i => i.id === S.openIdea)) S.openIdea = null; saveAlbOpen(); render(); }
+    const set = setById(el.dataset.set);
+    if (set) {
+      const song = ideaById(el.dataset.setIdea);
+      const key = `set:${set.id}`;
+      if (a === 'set-toggle') { if (!ALB_OPEN.delete(key)) ALB_OPEN.add(key); saveAlbOpen(); render(); }
+      if (a === 'set-menu') setMenu(set);
+      if (a === 'set-add') fillSet(set);
+      if (a === 'set-play') playSet(set);
+      if (a === 'set-stage') openStage(set);
+      if (a === 'set-open' && song) openStage(set, song.id);
+      if (a === 'set-song-menu' && song) setSongMenu(set, song);
+      return;
+    }
     if (a === 'album-menu' && albumById(albumId)) albumMenu(albumById(albumId));
     if (a === 'album-add' && albumById(albumId)) fillAlbum(albumById(albumId));
     if (a === 'album-song' && albumById(albumId)) createSong(albumId);
@@ -2779,7 +3083,7 @@ function wireUi() {
 
   // Barre d'espace = enregistrer / arrêter (sur PC)
   document.addEventListener('keydown', e => {
-    if (e.code !== 'Space' || sheetClose || /INPUT|TEXTAREA/.test(document.activeElement?.tagName)) return;
+    if (e.code !== 'Space' || sheetClose || STAGE.on || /INPUT|TEXTAREA/.test(document.activeElement?.tagName)) return;
     e.preventDefault();
     if (REC.recorder) stopRecording(false); else startRecording(null);
   });
