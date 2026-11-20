@@ -504,30 +504,42 @@ function openRider(g) {
   el.innerHTML = `<div class="rider-bar">
       <button class="txt-btn accent" data-print>imprimer ou PDF</button>
       <button class="txt-btn" data-copy>copier le texte</button>
+      <button class="txt-btn" data-light>fond clair</button>
       <button class="txt-btn" data-edit>modifier</button>
       <button class="txt-btn" data-close>fermer</button>
     </div>
     ${thin ? '<p class="rider-tip">Cette fiche est encore légère : remplis « Qui joue quoi » et « Sur scène » dans la fiche du groupe pour qu\'une salle ait ce qu\'il lui faut.</p>' : ''}
     <article class="rider-page">
       <header class="rider-head">
-        ${isCover(g.cover) ? `<img src="${g.cover}" alt="">` : ''}
-        <div><p class="rider-kind">Fiche technique</p>
+        <div class="rider-id"><p class="rider-kind">Fiche technique</p>
           <h1>${esc(g.name)}</h1>
-          <p class="rider-tag">${esc([p.style, p.city, p.set ? `set de ${p.set}` : ''].filter(Boolean).join(' · '))}</p></div>
+          ${p.style || p.city ? `<p class="rider-tag">${esc([p.style, p.city].filter(Boolean).join(' · '))}</p>` : ''}</div>
+        ${isCover(g.cover) ? `<img src="${g.cover}" alt="">` : ''}
       </header>
-      ${lineup.length ? `<h2>Line-up</h2><table><thead><tr><th>Musicien</th><th>Instrument</th><th>Besoins sur scène</th></tr></thead><tbody>
-        ${lineup.map(m => `<tr><td>${esc(m.name || '')}</td><td>${esc(m.inst || '')}</td><td>${esc(m.needs || '')}</td></tr>`).join('')}</tbody></table>` : ''}
-      ${part('Le groupe apporte', p.brings)}
-      ${part('À fournir par la salle', p.needs)}
+      ${p.set || lineup.length ? `<p class="rider-facts">${[p.set ? `<span><b>${esc(p.set)}</b> de set</span>` : '', lineup.length ? `<span><b>${lineup.length}</b> sur scène</span>` : ''].join('')}</p>` : ''}
+      ${lineup.length ? `<h2>Line-up</h2><ol class="rider-lineup">
+        ${lineup.map((m, n) => `<li><span class="n">${String(n + 1).padStart(2, '0')}</span><b>${esc(m.name || '')}</b><span class="plays">${esc(m.inst || '')}</span><span class="needs">${esc(m.needs || '')}</span></li>`).join('')}</ol>` : ''}
+      ${p.brings || p.needs ? `<div class="rider-cols">${p.brings ? `<section>${part('Le groupe apporte', p.brings)}</section>` : ''}${p.needs ? `<section>${part('À fournir par la salle', p.needs)}</section>` : ''}</div>` : ''}
       ${part('Remarques', p.notes)}
-      ${contact || p.links ? `<h2>Contact</h2><p class="rider-text">${esc([contact, p.links].filter(Boolean).join('\n'))}</p>` : ''}
+      ${contact || p.links ? `<footer class="rider-contact"><h2>Contact</h2>
+        ${p.contact ? `<p class="who">${esc(p.contact)}</p>` : ''}
+        ${p.phone || p.mail ? `<p class="rider-text">${esc([p.phone, p.mail].filter(Boolean).join(' · '))}</p>` : ''}
+        ${p.links ? `<p class="rider-text links">${esc(p.links)}</p>` : ''}</footer>` : ''}
       <p class="rider-foot">Fiche du ${new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
     </article>`;
+  const paintLight = () => {
+    let light = false;
+    try { light = localStorage.getItem('fredon.riderLight') === '1'; } catch {}
+    el.classList.toggle('light', light);
+    el.querySelector('[data-light]').textContent = light ? 'fond sombre' : 'fond clair';
+  };
+  paintLight();
   el.onclick = async e => {
     const b = e.target.closest('button');
     if (!b) return;
     if (b.hasAttribute('data-close')) closeRider();
     if (b.hasAttribute('data-print')) window.print();
+    if (b.hasAttribute('data-light')) { try { localStorage.setItem('fredon.riderLight', el.classList.contains('light') ? '0' : '1'); } catch {} paintLight(); }
     if (b.hasAttribute('data-edit')) { closeRider(); editBand(g); }
     if (b.hasAttribute('data-copy')) {
       try { await navigator.clipboard.writeText(riderText(g)); toast('Fiche copiée'); }
