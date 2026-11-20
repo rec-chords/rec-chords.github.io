@@ -1,10 +1,13 @@
 // Service worker minimal : rend l'appli installable et l'ouvre même sans réseau.
 // Réseau d'abord (pour toujours avoir la dernière version), cache en secours.
-const CACHE = 'fredon-v24';
+const CACHE = 'fredon-v25';
+const LIB = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js';
 const SHELL = ['./', 'index.html', 'styles.css', 'store.js', 'app.js', 'manifest.webmanifest', 'icon.svg', 'icon-192.png'];
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL.map(u => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL.map(u => new Request(u, { cache: 'reload' }))))
+    .then(() => caches.open(CACHE).then(c => c.add(LIB)).catch(() => {})) // pour démarrer aussi sans réseau
+    .then(() => self.skipWaiting()));
 });
 self.addEventListener('activate', e => {
   e.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))

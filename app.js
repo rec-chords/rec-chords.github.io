@@ -1,6 +1,6 @@
 /* Rec. — carnet de vocaux musicaux (nom technique : fredon) */
 (() => {
-const { LocalStore, CloudStore, loadConfig, saveConfig } = window.FredonStore;
+const { LocalStore, CloudStore, loadConfig, saveConfig, isNetErr } = window.FredonStore;
 
 const TAG_PRESETS = ['mélodie', 'rythme', 'paroles', 'accords', 'couplet', 'refrain', 'pont', 'intro', 'beat'];
 
@@ -18,6 +18,7 @@ const S = {
   filter: { q: '', tags: new Set(), star: false },
   playing: null,
   queue: [],
+  offline: false,
 };
 
 /* ---------------- Utilitaires ---------------- */
@@ -108,6 +109,11 @@ function newsOf(idea) {
   const fresh = !SEEN[idea.id] && !isMine(idea) && new Date(idea.updated_at) > since; // idée arrivée dans le groupe
   return { takes, talk, idea: fresh, any: fresh || takes.length > 0 || talk.length > 0 };
 }
+// Hors connexion : ce qui attend d'être envoyé, et la dernière copie des données gardée sur l'appareil.
+const waiting = id => !!(S.store && S.store.pending && S.store.pending.has(id));
+const waitCount = () => (S.store && S.store.pending ? S.store.pending.size : 0);
+const saveSnap = data => { try { localStorage.setItem('fredon.snapshot', JSON.stringify(data)); } catch {} };
+const loadSnap = () => { try { return JSON.parse(localStorage.getItem('fredon.snapshot')); } catch { return null; } };
 const ideaTitle = idea => idea.title || `Idée du ${fmtDay(idea.created_at)}`;
 const allTags = () => [...new Set(visibleIdeas().flatMap(i => i.tags || []))].sort((a, b) => a.localeCompare(b, 'fr'));
 const recentIdeas = () => visibleIdeas().sort((a, b) => b.updated_at.localeCompare(a.updated_at));
@@ -219,7 +225,7 @@ function takeHtml(t, index, inInbox) {
   const title = t.title || (inInbox ? `Vocal du ${fmtDayTime(t.created_at)}` : layer ? `Piste ${instrumentOf(t.instrument)?.label.toLowerCase() || 'ajoutée'}` : `Prise ${index + 1}`);
   const shared = !inInbox && ideaById(t.idea_id)?.group_id;
   const who = shared && t.author ? `${t.author} · ` : '';
-  const meta = inInbox ? fmtDur(lenOf(t)) : `${who}${fmtDay(t.created_at)} · ${fmtDur(lenOf(t))}`;
+  const meta = (inInbox ? fmtDur(lenOf(t)) : `${who}${fmtDay(t.created_at)} · ${fmtDur(lenOf(t))}`) + (waiting(t.id) ? " · en attente d'envoi" : '');
   const inst = instrumentOf(t.instrument);
   const isNew = shared && newsOf(ideaById(t.idea_id)).takes.includes(t);
   return `<li class="take ${layer ? 'layer' : ''}" data-id="${t.id}">
@@ -498,7 +504,7 @@ async function play(id, queue = []) {
     await audio.play();
   } catch (e) {
     S.playing = null;
-    fail(e, 'Lecture impossible');
+    if (isNetErr(e)) toast("Pas de réseau : cette prise n'est pas sur l'appareil."); else fail(e, 'Lecture impossible');
   }
   updatePlayUI();
 }
@@ -756,7 +762,8 @@ async function commitTake(rec, dest, name, tags) {
   if (idea && rec.bpm && !idea.bpm) idea.bpm = rec.bpm; // enregistrée au métronome : l'idée garde ce tempo
   if (idea) await touchIdea(idea);
   render();
-  toast(idea ? `Rangé dans « ${ideaTitle(idea)} »` : 'Rangé dans « À trier »');
+  syncStatus();
+  toast(waiting(take.id) ? "Gardé sur l'appareil, envoi au retour du réseau" : idea ? `Rangé dans « ${ideaTitle(idea)} »` : 'Rangé dans « À trier »');
 }
 
 /* ---------------- Métronome ---------------- */
@@ -2267,15 +2274,63 @@ async function useStore(store, alreadyInit = false) {
   await reload();
 }
 
-async function reload() {
+// Bandeau d'état de la synchro : hors connexion, ou des éléments en attente d'envoi.
+let syncShown = false;
+function syncStatus() {
+  const n = waitCount();
+  const wait = n ? `${n} ${n > 1 ? 'éléments attendent' : 'élément attend'} d'être ${n > 1 ? 'envoyés' : 'envoyé'}.` : '';
+  if (S.offline) setStatus(`Hors connexion. Tu peux enregistrer : tout partira au retour du réseau. ${wait}`.trim());
+  else if (n) setStatus(`${wait} Envoi dès que possible…`);
+  else if (syncShown) setStatus('');
+  syncShown = S.offline || n > 0;
+}
+let syncing = false;
+async function syncOutbox() {
+  if (syncing || !isCloud() || !waitCount() || !navigator.onLine) return;
+  syncing = true;
+  try {
+    const r = await S.store.flush();
+    if (r.sent) { await reload(true); toast(`${r.sent} ${r.sent > 1 ? 'éléments envoyés' : 'élément envoyé'}`); }
+    if (r.errors.length) fail(r.errors[0], 'Envoi refusé, gardé sur cet appareil');
+  } catch (e) { console.error(e); }
+  syncing = false;
+  syncStatus();
+}
+window.addEventListener('online', () => { if (isCloud()) reload(); });
+window.addEventListener('offline', () => { if (isCloud()) { S.offline = true; syncStatus(); } });
+setInterval(() => {
+  if (!isCloud() || !navigator.onLine || REC.recorder || sheetClose) return;
+  if (S.offline) reload(); else if (waitCount()) syncOutbox();
+}, 30000);
+
+async function reload(noSync = false) {
   try {
     if (S.store.kind === 'cloud' && !S.store.user) { S.ideas = []; S.takes = []; S.groups = []; S.members = []; S.comments = []; render(); return; }
     const cloud = S.store.kind === 'cloud';
-    const [ideas, takes, groups, members, comments] = await Promise.all([
-      S.store.listIdeas(), S.store.listTakes(),
-      cloud ? S.store.listGroups() : [], cloud ? S.store.listMembers() : [],
-      cloud ? S.store.listComments().catch(() => []) : [],
-    ]);
+    let ideas, takes, groups, members, comments;
+    try {
+      [ideas, takes, groups, members, comments] = await Promise.all([
+        S.store.listIdeas(), S.store.listTakes(),
+        cloud ? S.store.listGroups() : [], cloud ? S.store.listMembers() : [],
+        cloud ? S.store.listComments().catch(e => { if (isNetErr(e)) throw e; return []; }) : [],
+      ]);
+      S.offline = false;
+      if (cloud) saveSnap({ user: me(), ideas, takes, groups, members, comments });
+    } catch (e) {
+      // Pas de réseau : on repart de la dernière copie gardée sur l'appareil.
+      const snap = cloud && isNetErr(e) ? loadSnap() : null;
+      if (!snap || snap.user !== me()) { if (!cloud || !isNetErr(e)) throw e; }
+      ({ ideas = [], takes = [], groups = [], members = [], comments = [] } = snap && snap.user === me() ? snap : {});
+      S.store.assumeKnown(ideas, takes);
+      S.offline = true;
+    }
+    if (cloud) { // ce qui attend d'être envoyé s'affiche comme le reste
+      for (const it of S.store.pending.values()) {
+        const list = it.kind === 'idea' ? ideas : takes;
+        const i = list.findIndex(r => r.id === it.id);
+        if (i >= 0) list[i] = it.row; else list.push(it.row);
+      }
+    }
     S.comments = comments || [];
     S.ideas = ideas || [];
     S.takes = takes || [];
@@ -2285,6 +2340,8 @@ async function reload() {
     try { scope = localStorage.getItem('fredon.scope') || 'me'; } catch {}
     S.scope = cloud && groupById(scope) ? scope : 'me';
     render();
+    syncStatus();
+    if (cloud && !S.offline && !noSync) syncOutbox();
   } catch (e) {
     fail(e, 'Chargement impossible');
   }

@@ -25,6 +25,9 @@ dans une **idée** (nouvelle ou suite d'une idée existante). Tu peux glisser le
 - **Apparence** : sombre ou clair, dans les réglages.
 - **Couper une prise** : menu ⋯ de la prise, « Couper le début et la fin ». Le fichier n'est pas modifié, on peut
   revenir en arrière avec « tout garder ». (Colonnes ajoutées par `supabase-coupe.sql`, déjà exécuté.)
+- **Hors connexion** : une fois l'appli ouverte au moins une fois avec du réseau, elle s'ouvre aussi sans. On peut
+  enregistrer, nommer, ranger : tout est gardé sur l'appareil (« en attente d'envoi ») et part tout seul au retour
+  du réseau. Les anciennes prises ne s'écoutent pas sans réseau, elles ne sont pas stockées sur l'appareil.
 - **Discussion** : dans un groupe, chaque idée a son fil de messages (bouton « discuter » sous l'idée).
   Table créée par `supabase-discussion.sql`, déjà exécuté.
 - **Nouveau** : une étiquette signale ce que les autres ont ajouté depuis ton dernier passage sur l'idée.
