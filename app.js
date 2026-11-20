@@ -303,18 +303,24 @@ function blockHtml(idea, list, full = false) {
   </section>`;
 }
 
-function songHtml(idea, n, numbered) {
+function songHtml(idea, label) {
   const open = S.openIdea === idea.id;
   const takes = takesOf(idea.id);
   const meta = [idea.bpm ? `${idea.bpm} bpm` : '', idea.tona || '', takes.length ? plural(takes.length, 'prise') : ''].filter(Boolean).join(' · ');
   return `<li class="song ${open ? 'open' : ''}" data-song="${idea.id}">
     <div class="song-row" data-action="song-toggle" data-idea="${idea.id}">
-      <span class="num">${numbered ? String(n + 1).padStart(2, '0') : '–'}</span>
+      <span class="num">${label || '–'}</span>
       <span class="song-title">${esc(ideaTitle(idea))}</span>${newsOf(idea).any ? '<span class="news">nouveau</span>' : ''}
       <span class="song-meta">${esc(meta)}</span>
     </div>
     ${open ? blockHtml(idea, takes, true) : ''}
   </li>`;
+}
+// Comme sur un disque : face A, puis face B dès que l'album est assez long.
+function sidesHtml(list) {
+  const half = list.length >= 6 ? Math.ceil(list.length / 2) : list.length;
+  const side = (name, songs) => (songs.length ? `<li class="side"><span>Face ${name}</span><i>${morceaux(songs.length)}</i></li>` + songs.map((i, n) => songHtml(i, name + (n + 1))).join('') : '');
+  return side('A', list.slice(0, half)) + side('B', list.slice(half));
 }
 function albumsHtml() {
   const f = S.filter;
@@ -328,14 +334,14 @@ function albumsHtml() {
     const dur = list.reduce((sum, i) => sum + takesOf(i.id).filter(t => !baseOf(t)).reduce((x, t) => x + lenOf(t), 0), 0);
     const meta = [morceaux(list.length), dur ? fmtLong(dur) : ''].filter(Boolean).join(' · ');
     return `<section class="album ${open ? 'open' : ''}" data-album="${key}">
-      <div class="album-head ${a && isCover(a.cover) ? 'has-cover' : ''}" data-action="album-toggle" data-album-id="${key}">
-        ${a && isCover(a.cover) ? `<img class="album-cover" src="${a.cover}" alt="">` : ''}
+      <div class="album-head ${a ? 'has-cover' : ''}" data-action="album-toggle" data-album-id="${key}">
+        ${a ? `<span class="sleeve"><i class="disc"></i>${isCover(a.cover) ? `<img class="album-cover" src="${a.cover}" alt="">` : `<span class="album-cover blank">${esc((a.name.trim()[0] || '?').toUpperCase())}</span>`}</span>` : ''}
         <span class="album-kind">${a ? esc(a.kind) : 'En vrac'}</span>
         <h2 class="album-name">${a ? esc(a.name) : 'Sans album'}</h2>
         ${a ? `<button class="mini-btn" data-action="album-menu" data-album-id="${key}" aria-label="Options de l'album">${ICONS.more}</button>` : ''}
         <p class="album-meta">${list.some(i => newsOf(i).any) ? '<span class="news">nouveau</span>' : ''}${esc(meta)}<i class="album-chev">${open ? 'replier' : 'ouvrir'}</i></p>
       </div>
-      ${open ? `<ol class="songs">${list.map((i, n) => songHtml(i, n, !!a)).join('')}</ol>
+      ${open ? `<ol class="songs">${a ? sidesHtml(list) : list.map(i => songHtml(i, '')).join('')}</ol>
         ${a ? `<div class="album-foot"><button class="add-take" data-action="album-add" data-album-id="${key}">+ ajouter des morceaux</button><button class="add-take" data-action="album-song" data-album-id="${key}">+ nouvelle chanson</button></div>` : ''}` : ''}
     </section>`;
   }).join('');
