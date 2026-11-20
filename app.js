@@ -1644,23 +1644,134 @@ async function talkSheet(idea) {
   render();
 }
 
-// Lien d'invitation : l'adresse de l'appli suivie de ?rejoindre=CODE.
-const inviteLink = code => `${location.origin}${location.pathname}?rejoindre=${encodeURIComponent(code)}`;
-const pendingInvite = () => { try { return localStorage.getItem('fredon.invite') || ''; } catch { return ''; } };
+// Lien d'invitation : l'adresse de l'appli suivie de ?rejoindre=CODE&de=Prénom.
+const inviteLink = (code, from = '') => `${location.origin}${location.pathname}?rejoindre=${encodeURIComponent(code)}${from ? '&de=' + encodeURIComponent(from) : ''}`;
+// L'invitation en attente est gardée sur l'appareil : elle survit à la création du compte et à l'e-mail de confirmation.
+const pendingInvite = () => { try { const v = JSON.parse(localStorage.getItem('fredon.invite')); return v && v.code ? v : null; } catch { return null; } };
+const keepInvite = inv => { try { localStorage.setItem('fredon.invite', JSON.stringify(inv)); } catch {} };
+const dropInvite = () => { try { localStorage.removeItem('fredon.invite'); } catch {} };
 function catchInvite() {
-  const code = new URLSearchParams(location.search).get('rejoindre');
+  const q = new URLSearchParams(location.search);
+  const code = (q.get('rejoindre') || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12);
   if (!code) return;
-  try { localStorage.setItem('fredon.invite', code.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12)); } catch {}
+  keepInvite({ code, from: (q.get('de') || '').slice(0, 30), name: (q.get('moi') || '').slice(0, 30) });
   history.replaceState(null, '', location.pathname);
 }
-async function checkInvite() {
-  const code = pendingInvite();
-  if (!code || !isCloud() || sheetClose) return;
-  try { localStorage.removeItem('fredon.invite'); } catch {}
-  const mine = S.groups.find(g => g.code === code);
-  if (mine) { setScope(mine.id); toast(`Tu es déjà dans « ${mine.name} »`); return; }
-  addGroup(code);
+async function joinInvite() {
+  const inv = pendingInvite();
+  dropInvite();
+  if (!inv || !isCloud()) return;
+  try {
+    const gid = await S.store.joinGroup(inv.code, inv.name || lastName());
+    await reload();
+    setScope(gid);
+    toast(`Bienvenue dans « ${groupById(gid)?.name || 'le groupe'} »`);
+  } catch (e) { fail(e, 'Impossible de rejoindre le groupe'); }
 }
+// Page d'accueil d'une invitation : qui invite, dans quel groupe, et le strict nécessaire pour entrer.
+async function inviteWelcome() {
+  const inv = pendingInvite();
+  if (!inv || sheetClose) return;
+  let cloud = S.store && S.store.kind === 'cloud' ? S.store : null;
+  try { if (!cloud) { cloud = new CloudStore(loadConfig()); await cloud.init(); } }
+  catch (e) { fail(e, 'Invitation illisible pour le moment'); return; }
+  if (isCloud()) {
+    const mine = S.groups.find(g => g.code === inv.code);
+    if (mine) { dropInvite(); setScope(mine.id); toast(`Tu es déjà dans « ${mine.name} »`); return; }
+    if (inv.name) return joinInvite(); // prénom déjà donné avant l'e-mail de confirmation : on entre directement
+  }
+  let info = null;
+  try { info = await cloud.inviteInfo(inv.code); } catch {}
+  if (!info) {
+    dropInvite();
+    await openSheet(`<div class="invite"><p class="invite-brand">Rec<i>.</i></p>
+      <h2>Cette invitation n'est plus valable</h2>
+      <p class="sub">Le groupe a peut-être été supprimé, ou le lien est incomplet. Demande un nouveau lien à tes musiciens.</p>
+      <button class="btn primary wide" data-ok>D'accord</button></div>`,
+    (sh, close) => { sh.querySelector('[data-ok]').onclick = () => close(); });
+    if (!isCloud()) openSettings();
+    return;
+  }
+  const from = inv.from || info.admin || '';
+  let mode = cloud.user ? 'join' : 'signup';
+  let waiting = false;
+  const v = await openSheet('<div class="invite"></div>', (sh, close) => {
+    const root = sh.querySelector('.invite');
+    const draw = () => {
+      const who = root.querySelector('#iWho')?.value ?? lastName();
+      const mail = root.querySelector('#iEmail')?.value ?? '';
+      root.innerHTML = `
+        <p class="invite-brand">Rec<i>.</i></p>
+        <h2>${from ? `<em>${esc(from)}</em> t'invite à rejoindre` : 'Tu es invité à rejoindre'} <em>${esc(info.name)}</em></h2>
+        <p class="sub">Rec. est le carnet d'idées du groupe : chacun enregistre ses idées au téléphone, tout le monde les écoute et ajoute les siennes.</p>
+        <label class="label" for="iWho">Ton prénom</label>
+        <input class="field" id="iWho" value="${esc(who)}" placeholder="Ex : Léo" autocomplete="given-name" maxlength="30">
+        ${mode === 'join' ? '' : `
+        <label class="label" for="iEmail">Ton e-mail</label>
+        <input class="field" id="iEmail" type="email" value="${esc(mail)}" autocomplete="username" inputmode="email">
+        <label class="label" for="iPass">${mode === 'signup' ? 'Choisis un mot de passe' : 'Ton mot de passe'}</label>
+        <input class="field" id="iPass" type="password" autocomplete="${mode === 'signup' ? 'new-password' : 'current-password'}">
+        ${mode === 'signup' ? '<p class="hint">8 caractères ou plus.</p>' : ''}`}
+        <button class="btn primary wide" data-go>${mode === 'signup' ? "S'inscrire et rejoindre le groupe" : mode === 'login' ? 'Me connecter et rejoindre le groupe' : 'Rejoindre le groupe'}</button>
+        <div class="invite-foot">
+          ${mode === 'join' ? '' : `<button class="txt-btn accent" data-swap>${mode === 'signup' ? "J'ai déjà un compte" : 'Je n\'ai pas encore de compte'}</button>`}
+          <button class="txt-btn" data-later>plus tard</button>
+        </div>`;
+      const swap = root.querySelector('[data-swap]');
+      if (swap) swap.onclick = () => { mode = mode === 'signup' ? 'login' : 'signup'; draw(); };
+      root.querySelector('[data-later]').onclick = () => close('later');
+      const go = root.querySelector('[data-go]');
+      go.onclick = async () => {
+        const name = root.querySelector('#iWho').value.trim();
+        if (!name) { toast('Il manque ton prénom'); return; }
+        keepInvite({ ...inv, name });
+        try { localStorage.setItem('fredon.name', name); } catch {}
+        if (mode === 'join') { close('go'); return; }
+        const email = root.querySelector('#iEmail').value.trim();
+        const pass = root.querySelector('#iPass').value;
+        if (!email || !pass) { toast('Il manque ton e-mail ou ton mot de passe'); return; }
+        if (mode === 'signup' && pass.length < 8) { toast('Choisis un mot de passe de 8 caractères ou plus'); return; }
+        const label = go.textContent;
+        go.disabled = true;
+        go.textContent = mode === 'signup' ? 'Création du compte…' : 'Connexion…';
+        try {
+          if (mode === 'signup') {
+            const open = await cloud.signUp(email, pass, inviteLink(inv.code, from) + '&moi=' + encodeURIComponent(name));
+            if (!open) {
+              waiting = true;
+              root.innerHTML = `
+                <p class="invite-brand">Rec<i>.</i></p>
+                <h2>Plus qu'une étape</h2>
+                <p class="sub">On vient d'envoyer un e-mail à <strong>${esc(email)}</strong>. Ouvre-le et touche le lien de confirmation : tu arriveras directement dans <em>${esc(info.name)}</em>.</p>
+                <p class="hint">Rien reçu au bout d'une minute ? Regarde dans les indésirables.</p>
+                <button class="btn wide" data-ok>D'accord</button>`;
+              root.querySelector('[data-ok]').onclick = () => close('wait');
+              return;
+            }
+          } else await cloud.signIn(email, pass);
+          close('go');
+        } catch (e) {
+          go.disabled = false;
+          go.textContent = label;
+          fail(e, mode === 'signup' ? 'Inscription impossible' : 'Connexion impossible');
+        }
+      };
+    };
+    draw();
+  });
+  if (v === 'go') {
+    try {
+      saveConfig({ ...loadConfig(), mode: 'cloud' });
+      await useStore(cloud, true);
+      setStatus('');
+      await joinInvite();
+    } catch (e) { fail(e, 'Impossible de rejoindre le groupe'); }
+    return;
+  }
+  if (!waiting) dropInvite(); // « plus tard » : on n'insiste pas, le lien pourra être rouvert
+  if (!isCloud()) setStatus(waiting ? 'Confirme ton adresse depuis l\'e-mail reçu, puis reviens ici.' : 'Connecte-toi dans les réglages pour retrouver tes vocaux.');
+}
+const checkInvite = inviteWelcome;
 
 /* ---------------- Groupes ---------------- */
 function nameField(value) {
@@ -1735,7 +1846,7 @@ async function manageGroup(gid) {
       try { await navigator.clipboard.writeText(g.code); e.target.textContent = 'copié'; } catch { toast(`Code : ${g.code}`); }
     };
     sh.querySelector('[data-link]').onclick = async e => {
-      const url = inviteLink(g.code);
+      const url = inviteLink(g.code, myMember(gid)?.name || '');
       if (navigator.share) { try { await navigator.share({ title: 'Rec.', text: `Rejoins « ${g.name} » sur Rec.`, url }); return; } catch (err) { if (err && err.name === 'AbortError') return; } }
       try { await navigator.clipboard.writeText(url); e.target.textContent = 'Lien copié'; } catch { toast(url); }
     };
@@ -2335,7 +2446,7 @@ async function boot() {
       const cloud = new CloudStore(cfg);
       const logged = await cloud.init();
       S.store = cloud;
-      if (!logged) { setStatus(pendingInvite() ? 'Connecte-toi ou crée ton compte pour rejoindre le groupe.' : 'Connecte-toi dans les réglages pour retrouver tes vocaux.'); render(); openSettings(); return; }
+      if (!logged) { render(); if (pendingInvite()) { inviteWelcome(); return; } setStatus('Connecte-toi dans les réglages pour retrouver tes vocaux.'); openSettings(); return; }
     } catch (e) {
       setStatus(`Synchro indisponible (${e.message}). Mode local en attendant.`);
       S.store = new LocalStore();
@@ -2347,8 +2458,7 @@ async function boot() {
   }
   await reload();
   if (S.store.kind === 'local') {
-    setStatus(pendingInvite() ? 'Pour rejoindre le groupe, choisis « Synchronisé » dans les réglages et connecte-toi.' : 'Mode essai : les vocaux restent sur cet appareil. La synchro se règle dans « réglages ».');
-    if (pendingInvite()) openSettings();
+    setStatus('Mode essai : les vocaux restent sur cet appareil. La synchro se règle dans « réglages ».');
   }
   checkInvite();
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {

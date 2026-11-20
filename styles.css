@@ -464,3 +464,14 @@ body.file-drag .block * { pointer-events: none; }
 .talk-form { display: flex; align-items: flex-end; gap: 10px; margin-top: 18px; }
 .talk-form textarea { flex: 1; min-height: 0; resize: none; }
 .talk-form .btn { flex: none; }
+
+/* ---------------- Accueil d'une invitation ---------------- */
+.invite-brand { font: 700 18px var(--mono); letter-spacing: -.02em; margin-bottom: 26px; }
+.invite-brand i { color: var(--accent); font-style: normal; }
+.invite h2 { font-size: 30px; line-height: 1.15; text-wrap: balance; }
+.invite em { font-style: normal; color: var(--accent); }
+.invite .sub { margin-top: 14px; line-height: 1.5; }
+.invite .sub strong { color: var(--text); }
+.btn.wide { width: 100%; margin-top: 22px; }
+.invite-foot { display: flex; justify-content: space-between; gap: 16px; margin-top: 18px; }
+.invite-foot .txt-btn:only-child { margin-left: auto; }

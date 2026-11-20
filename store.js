@@ -111,9 +111,9 @@ class CloudStore {
   }
   // Crée un compte. Renvoie true si la session est ouverte tout de suite,
   // false s'il faut d'abord confirmer l'adresse par e-mail.
-  async signUp(email, password) {
+  async signUp(email, password, redirect) {
     const { data, error } = await this.sb.auth.signUp({
-      email, password, options: { emailRedirectTo: location.origin + location.pathname },
+      email, password, options: { emailRedirectTo: redirect || location.origin + location.pathname },
     });
     if (error) throw error;
     this.user = data.session ? data.user : null;
@@ -175,6 +175,7 @@ class CloudStore {
   listGroups() { return this._check(this.sb.from('groups').select('*')); }
   listMembers() { return this._check(this.sb.from('group_members').select('*')); }
   createGroup(name, displayName) { return this._check(this.sb.rpc('create_group', { group_name: name, display_name: displayName })); }
+  inviteInfo(code) { return this._check(this.sb.rpc('invite_info', { invite_code: code })); }
   joinGroup(code, displayName) { return this._check(this.sb.rpc('join_group', { invite_code: code, display_name: displayName })); }
   renameGroup(id, name) { return this._check(this.sb.from('groups').update({ name }).eq('id', id)); }
   deleteGroup(id) { return this._check(this.sb.from('groups').delete().eq('id', id)); }
