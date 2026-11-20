@@ -407,7 +407,12 @@ body.file-drag .block * { pointer-events: none; }
 /* ---------- Tempo, tonalité, accords ---------- */
 .tempo-chip { display: inline-block; margin-top: 10px; padding: 2px 8px; border: 1px solid var(--line); font: 14px var(--mono); color: var(--text); }
 .tempo-chip:hover { border-color: var(--accent); }
-.chords { margin: 10px 0 0; font: 500 15.5px var(--mono); letter-spacing: .02em; white-space: pre-wrap; overflow-wrap: anywhere; cursor: pointer; }
+/* Les accords gardent leurs lignes et leurs espaces : une ligne trop longue défile de côté au lieu de se replier. */
+.chords {
+  margin: 10px 0 0; font: 500 15.5px/1.5 var(--mono); letter-spacing: .02em; white-space: pre; tab-size: 4; cursor: pointer;
+  max-height: 15em; overflow: auto; scrollbar-width: thin; padding-bottom: 2px;
+}
+textarea.field.chords-field { font: 500 15px/1.5 var(--mono); white-space: pre; overflow: auto; tab-size: 4; min-height: 150px; max-height: 45dvh; margin-top: 0; }
 .tempo-row { display: flex; gap: 8px; }
 .tempo-row .field { flex: 1; min-width: 0; }
 .tempo-row .btn { flex: none; }

@@ -866,7 +866,7 @@ async function editTempo(idea) {
     <label class="label" for="tKey">Tonalité</label>
     <input class="field" id="tKey" placeholder="Ex : La mineur" autocomplete="off" maxlength="30" value="${esc(tona)}">
     <label class="label" for="tChords">Accords</label>
-    <input class="field" id="tChords" placeholder="Ex : Am  F  C  G" autocomplete="off" maxlength="120" value="${esc(chords)}">
+    <textarea class="field chords-field" id="tChords" wrap="off" spellcheck="false" autocapitalize="off" autocomplete="off" maxlength="8000" placeholder="Ex : Am  F  C  G&#10;ou toute la grille, une ligne par phrase">${esc(chords)}</textarea>
     <div class="row"><button class="btn" data-x>Annuler</button><button class="btn primary" data-ok>Enregistrer</button></div>`,
   (sh, close) => {
     const iBpm = sh.querySelector('#tBpm');
@@ -893,7 +893,7 @@ async function editTempo(idea) {
   const before = { bpm: idea.bpm, tona: idea.tona, chords: idea.chords };
   idea.bpm = Number(bpm) ? clampBpm(bpm) : null;
   idea.tona = tona.trim();
-  idea.chords = chords.trim();
+  idea.chords = chords.replace(/\r\n?/g, '\n').replace(/^(\s*\n)+/, '').replace(/\s+$/, ''); // on garde les espaces qui alignent les accords
   render();
   try { await touchIdea(idea); render(); toast('Enregistré'); }
   catch (e) { Object.assign(idea, before); render(); fail(e, 'Non enregistré'); }
@@ -1175,7 +1175,7 @@ async function ideaMenu(idea) {
     { label: 'Renommer', ico: '✎', value: 'rename' },
     { label: 'Étiquettes', ico: '#', value: 'tags', sub: (idea.tags || []).join(', ') },
     { label: idea.notes ? 'Modifier le texte' : 'Écrire un texte', ico: '¶', value: 'notes', sub: 'Paroles, accords, notes' },
-    { label: 'Tempo et tonalité', ico: '♩', value: 'tempo', sub: [idea.bpm ? `${idea.bpm} bpm` : '', idea.tona || '', idea.chords || ''].filter(Boolean).join(' · ') },
+    { label: 'Tempo et tonalité', ico: '♩', value: 'tempo', sub: [idea.bpm ? `${idea.bpm} bpm` : '', idea.tona || '', (idea.chords || '').split('\n')[0].trim()].filter(Boolean).join(' · ') },
     { label: idea.starred ? 'Retirer des favoris' : 'Ajouter aux favoris', ico: '★', value: 'star' },
     isCloud() && !group && S.groups.length && isMine(idea) && { label: 'Partager avec un groupe', value: 'share', sub: 'Les membres pourront écouter et ajouter' },
     group && isMine(idea) && { label: `Retirer de « ${group.name} »`, value: 'unshare', sub: 'Elle redevient personnelle' },
@@ -1591,7 +1591,7 @@ async function exportIdea(idea) {
     if (!files.length) { setStatus(''); toast('Rien à exporter.'); return; }
     const title = clean(ideaTitle(idea)) || 'idee';
     const infos = [ideaTitle(idea), '',
-      idea.bpm ? `Tempo : ${idea.bpm} bpm` : '', idea.tona ? `Tonalité : ${idea.tona}` : '', idea.chords ? `Accords : ${idea.chords}` : '',
+      idea.bpm ? `Tempo : ${idea.bpm} bpm` : '', idea.tona ? `Tonalité : ${idea.tona}` : '', idea.chords ? (idea.chords.includes('\n') ? `Accords :\n${idea.chords}` : `Accords : ${idea.chords}`) : '',
       idea.notes ? `\n${idea.notes}\n` : '',
       'Dans Reaper : ouvre le fichier .rpp, tout est déjà en place.',
       'Sinon, glisse les .wav dans ton logiciel. Les fichiers qui portent le même numéro (01, 01.1, 01.2…) vont ensemble :',
