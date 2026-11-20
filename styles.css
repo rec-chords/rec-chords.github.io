@@ -594,3 +594,55 @@ body.staging { overflow: hidden; }
 .band-acts { display: flex; gap: 18px; margin: 8px 0 0; }
 .band-field { min-height: 200px; }
 @media (max-width: 520px) { .band { gap: 14px; } .band-cover { width: 72px; height: 72px; } .band-memo { font-size: 15.5px; } }
+
+/* ---------- Fiche guidée du groupe et fiche technique ---------- */
+.band-tag { margin: 0 0 6px; font: 500 13px var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--accent); }
+.band-acts { flex-wrap: wrap; gap: 6px 18px; }
+.band-more { margin: 14px 0 0; display: grid; grid-template-columns: auto 1fr; gap: 8px 18px; font-size: 15.5px; color: var(--text); }
+.band-more dt { font: 13px var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: .08em; padding-top: 3px; }
+.band-more dd { margin: 0; min-width: 0; overflow-wrap: anywhere; font: 15.5px/1.5 var(--sans); }
+.band-more + .band-acts { margin-top: 14px; }
+.band-more i { font-style: normal; color: var(--muted); }
+.band-more a { color: var(--accent); text-underline-offset: 4px; }
+.band-links { white-space: pre-wrap; }
+.part { margin: 38px 0 0; padding-top: 16px; border-top: 2px solid var(--text); font: 500 14px var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--accent); }
+.part + .label { margin-top: 18px; }
+textarea.field.small { min-height: 92px; margin-top: 0; font-size: 17px; font-weight: 400; }
+.lu-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 14px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+.lu-row .field { font-size: 16.5px; padding: 12px; }
+.lu-row [data-lu="needs"] { grid-column: 1 / -1; }
+.lu-row .txt-btn { grid-column: 1 / -1; justify-self: end; font-size: 13.5px; }
+.rider { position: fixed; inset: 0; z-index: 65; overflow-y: auto; background: var(--soft); padding: 0 16px 60px; }
+.rider[hidden] { display: none; }
+body.riding { overflow: hidden; }
+.rider-bar { position: sticky; top: 0; z-index: 1; display: flex; flex-wrap: wrap; gap: 8px 22px; max-width: 760px; margin: 0 auto; padding: calc(16px + env(safe-area-inset-top)) 0 16px; background: var(--soft); }
+.rider-bar [data-close] { margin-left: auto; }
+.rider-tip { max-width: 760px; margin: 0 auto 16px; font-size: 15px; color: var(--muted); }
+.rider-page { max-width: 760px; margin: 0 auto; padding: 44px 44px 36px; background: #fff; color: #111; font: 15.5px/1.5 var(--sans); }
+.rider-head { display: flex; gap: 22px; align-items: center; padding-bottom: 22px; border-bottom: 2px solid #111; }
+.rider-head img { width: 92px; height: 92px; object-fit: cover; flex: none; }
+.rider-kind { margin: 0; font: 500 12px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: #555; }
+.rider-page h1 { margin: 4px 0 0; font-size: 34px; font-weight: 700; letter-spacing: -.03em; line-height: 1.1; }
+.rider-tag { margin: 8px 0 0; font: 14px var(--mono); color: #333; }
+.rider-page h2 { margin: 28px 0 8px; font: 500 12.5px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: #555; }
+.rider-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.rider-page table { width: 100%; border-collapse: collapse; }
+.rider-page th { text-align: left; font: 12px var(--mono); color: #555; font-weight: 400; padding: 0 12px 6px 0; border-bottom: 1px solid #111; }
+.rider-page td { padding: 9px 12px 9px 0; border-bottom: 1px solid #ccc; vertical-align: top; }
+.rider-page td:first-child { font-weight: 600; white-space: nowrap; }
+.rider-foot { margin: 34px 0 0; font: 12px var(--mono); color: #777; }
+@media (max-width: 520px) {
+  .rider { padding: 0 0 40px; }
+  .rider-bar, .rider-tip { padding-left: 16px; padding-right: 16px; }
+  .rider-page { padding: 26px 18px; }
+  .rider-page h1 { font-size: 27px; }
+  .rider-head img { width: 68px; height: 68px; }
+  .rider-page td:first-child { white-space: normal; }
+}
+@media print {
+  html, body.riding { background: #fff !important; padding: 0 !important; overflow: visible !important; }
+  body.riding > *:not(#rider) { display: none !important; }
+  .rider { position: static; overflow: visible; padding: 0; background: #fff; }
+  .rider-bar, .rider-tip { display: none !important; }
+  .rider-page { max-width: none; padding: 0; }
+}

@@ -361,30 +361,77 @@ function renderHero() {
 // Fiche du groupe : une image et un mémo, en tête de la page du groupe.
 const BAND_OPEN = new Set();
 const linkify = text => esc(text).replace(/https?:\/\/[^\s<]+[^\s<.,;:!?)]/g, u => `<a href="${u}" target="_blank" rel="noopener noreferrer">${u.replace(/^https?:\/\/(www\.)?/, '')}</a>`);
+const profOf = g => (g.profile && typeof g.profile === 'object' && !Array.isArray(g.profile) ? g.profile : {});
+const lineupOf = g => (Array.isArray(profOf(g).lineup) ? profOf(g).lineup : []).filter(m => m && (m.name || m.inst));
+const STAGE_KEYS = ['set', 'brings', 'needs', 'notes'];
 function bandHtml(g) {
+  const p = profOf(g);
   const memo = (g.memo || '').trim();
   const pic = isCover(g.cover);
-  if (!memo && !pic) return '';
-  const long = memo.split('\n').length > 3 || memo.length > 170;
+  const lineup = lineupOf(g);
+  const tag = [p.style, p.city].filter(Boolean).join(' · ');
+  const contact = [p.contact, p.phone, p.mail].filter(Boolean).join(' · ');
+  const more = lineup.length || contact || p.links;
+  if (!memo && !pic && !tag && !more && !STAGE_KEYS.some(k => p[k])) return '';
+  const long = memo.split('\n').length > 3 || memo.length > 170 || more;
   const open = long && BAND_OPEN.has(g.id);
   return `<div class="band ${open ? 'open' : ''}">
     ${pic ? `<img class="band-cover" src="${g.cover}" alt="">` : ''}
     <div class="band-text">
+      ${tag ? `<p class="band-tag">${esc(tag)}</p>` : ''}
       ${memo ? `<div class="band-memo">${linkify(memo)}</div>` : ''}
-      <p class="band-acts">${long ? `<button class="txt-btn" data-band="fold">${open ? 'replier' : 'tout lire'}</button>` : ''}<button class="txt-btn" data-band="edit">modifier</button></p>
+      ${open && more ? `<dl class="band-more">
+        ${lineup.length ? `<dt>Line-up</dt><dd>${lineup.map(m => esc(m.name || '?') + (m.inst ? ` <i>${esc(m.inst)}</i>` : '')).join('<br>')}</dd>` : ''}
+        ${contact ? `<dt>Contact</dt><dd>${esc(contact)}</dd>` : ''}
+        ${p.links ? `<dt>Liens</dt><dd class="band-links">${linkify(p.links)}</dd>` : ''}
+      </dl>` : ''}
+      <p class="band-acts">${long ? `<button class="txt-btn" data-band="fold">${open ? 'replier' : 'tout lire'}</button>` : ''}<button class="txt-btn" data-band="edit">modifier</button><button class="txt-btn accent" data-band="rider">fiche technique</button></p>
     </div>
   </div>`;
 }
 async function editBand(g) {
+  const p = profOf(g);
   let cover = isCover(g.cover) ? g.cover : '';
-  const v = await openSheet(`<h2>Présenter « ${esc(g.name)} »</h2>
-    <p class="sub">Visible par les membres du groupe. Chacun peut le modifier.</p>
+  // Le line-up part des membres inscrits, mais reste libre : un musicien n'a pas besoin d'avoir un compte.
+  const rows = lineupOf(g).length ? lineupOf(g) : membersOf(g.id).map(m => ({ name: m.name || '', inst: '', needs: '' }));
+  const rowHtml = m => `<div class="lu-row">
+      <input class="field" data-lu="name" maxlength="60" autocomplete="off" placeholder="Prénom" value="${esc(m.name || '')}">
+      <input class="field" data-lu="inst" maxlength="80" autocomplete="off" placeholder="Chant, guitare…" value="${esc(m.inst || '')}">
+      <input class="field" data-lu="needs" maxlength="160" autocomplete="off" placeholder="Sur scène : 1 micro chant, 1 DI…" value="${esc(m.needs || '')}">
+      <button class="txt-btn danger" data-lu-del aria-label="Retirer ce musicien">retirer</button>
+    </div>`;
+  const inp = (id, label, ph, max = 80) => `<label class="label" for="${id}">${label}</label><input class="field" id="${id}" maxlength="${max}" autocomplete="off" placeholder="${esc(ph)}" value="${esc(p[id.slice(2)] || '')}">`;
+  const area = (id, label, ph, value) => `<label class="label" for="${id}">${label}</label><textarea class="field small" id="${id}" maxlength="1000" placeholder="${esc(ph)}">${esc(value || '')}</textarea>`;
+  const v = await openSheet(`<h2>Fiche de « ${esc(g.name)} »</h2>
+    <p class="sub">Remplis ce que tu veux, le reste peut attendre. Visible et modifiable par les membres.</p>
+
+    <h3 class="part">1 · Le groupe</h3>
     <label class="label">Image</label>
     <div class="cover-row"><span class="cover-box" id="bCover"></span>
       <button class="txt-btn accent" data-cover>choisir une image</button><button class="txt-btn danger" data-nocover>retirer</button>
       <input type="file" id="bFile" accept="image/*" hidden></div>
-    <label class="label" for="bMemo">Mémo</label>
-    <textarea class="field band-field" id="bMemo" maxlength="4000" placeholder="Qui vous êtes, votre style, vos liens (Bandcamp, Insta…), les infos utiles à tout le groupe.">${esc(g.memo || '')}</textarea>
+    ${inp('b_style', 'Style', 'Ex : rock indé, dream pop')}
+    ${inp('b_city', 'Ville', 'Ex : Lyon')}
+    <label class="label" for="bMemo">Description</label>
+    <textarea class="field small" id="bMemo" maxlength="4000" placeholder="Deux ou trois phrases : qui vous êtes, ce que vous jouez, depuis quand.">${esc(g.memo || '')}</textarea>
+
+    <h3 class="part">2 · Qui joue quoi</h3>
+    <p class="hint">Un musicien par ligne. La troisième case dit ce qu'il lui faut sur scène.</p>
+    <div id="bLineup">${rows.map(rowHtml).join('')}</div>
+    <button class="add-take" data-lu-add>+ ajouter un musicien</button>
+
+    <h3 class="part">3 · Sur scène</h3>
+    <p class="hint">Sert à sortir la fiche technique pour une salle.</p>
+    ${inp('b_set', 'Durée du set', 'Ex : 45 min')}
+    ${area('b_brings', 'Vous apportez', 'Ex : guitares, basse, amplis, cymbales, caisse claire', p.brings)}
+    ${area('b_needs', 'À fournir par la salle', 'Ex : batterie, sono, 3 retours, 2 DI, 3 pieds de micro', p.needs)}
+    ${area('b_notes', 'Remarques', "Ex : placement sur scène, temps d'installation, besoins particuliers", p.notes)}
+
+    <h3 class="part">4 · Contact</h3>
+    ${inp('b_contact', 'Nom', 'La personne à appeler')}
+    ${inp('b_phone', 'Téléphone', '06…', 40)}
+    ${inp('b_mail', 'E-mail', 'groupe@exemple.fr', 120)}
+    ${area('b_links', 'Liens', 'Un lien par ligne : Bandcamp, Insta, YouTube…', p.links)}
     <div class="row"><button class="btn" data-x>Annuler</button><button class="btn primary" data-ok>Enregistrer</button></div>`,
   (sh, close) => {
     const file = sh.querySelector('#bFile');
@@ -402,15 +449,95 @@ async function editBand(g) {
       try { cover = await coverFrom(f); show(); } catch (e) { toast("Cette image n'a pas pu être lue"); }
     };
     show();
+    const box = sh.querySelector('#bLineup');
+    sh.querySelector('[data-lu-add]').onclick = () => { box.insertAdjacentHTML('beforeend', rowHtml({})); box.lastElementChild.querySelector('input').focus(); };
+    box.onclick = e => { if (e.target.closest('[data-lu-del]')) e.target.closest('.lu-row').remove(); };
+    const val = id => (sh.querySelector('#' + id).value || '').replace(/\r\n?/g, '\n').trim();
     sh.querySelector('[data-x]').onclick = () => close(null);
-    sh.querySelector('[data-ok]').onclick = () => close({ memo: sh.querySelector('#bMemo').value.replace(/\r\n?/g, '\n').trim(), cover });
+    sh.querySelector('[data-ok]').onclick = () => {
+      const profile = {};
+      for (const k of ['style', 'city', 'set', 'brings', 'needs', 'notes', 'contact', 'phone', 'mail', 'links']) { const x = val('b_' + k); if (x) profile[k] = x; }
+      const lineup = [...box.querySelectorAll('.lu-row')].map(r => Object.fromEntries([...r.querySelectorAll('[data-lu]')].map(i => [i.dataset.lu, i.value.trim()]))).filter(m => m.name || m.inst);
+      if (lineup.length) profile.lineup = lineup.slice(0, 20);
+      close({ memo: val('bMemo'), cover, profile });
+    };
   });
   if (!v) return;
-  const before = { memo: g.memo, cover: g.cover };
+  const before = { memo: g.memo, cover: g.cover, profile: g.profile };
   Object.assign(g, v);
   render();
-  try { await S.store.saveGroupProfile(g.id, v.memo, v.cover); }
+  try { await S.store.saveGroupProfile(g.id, v.memo, v.cover, v.profile); }
   catch (e) { Object.assign(g, before); render(); fail(e, isNetErr(e) ? 'Il faut du réseau pour modifier la fiche du groupe' : 'Enregistrement impossible'); }
+}
+
+/* ----- Fiche technique : une page propre à imprimer ou à envoyer ----- */
+let RIDER_ON = false;
+function riderText(g) {
+  const p = profOf(g);
+  const part = (title, body) => (body ? [`${title.toUpperCase()}`, body, ''] : []);
+  return [`${g.name} : fiche technique`, [p.style, p.city, p.set ? `set de ${p.set}` : ''].filter(Boolean).join(' · '), '',
+    ...part('Line-up', lineupOf(g).map(m => `- ${m.name || '?'}${m.inst ? ` : ${m.inst}` : ''}${m.needs ? ` (${m.needs})` : ''}`).join('\n')),
+    ...part('Le groupe apporte', p.brings), ...part('À fournir par la salle', p.needs), ...part('Remarques', p.notes),
+    ...part('Contact', [[p.contact, p.phone, p.mail].filter(Boolean).join(' · '), p.links].filter(Boolean).join('\n')),
+  ].join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+function closeRider() {
+  RIDER_ON = false;
+  const el = $('#rider');
+  if (el) { el.hidden = true; el.innerHTML = ''; }
+  document.body.classList.remove('riding');
+}
+function openRider(g) {
+  const p = profOf(g);
+  const lineup = lineupOf(g);
+  let el = $('#rider');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'rider';
+    el.className = 'rider';
+    document.body.append(el);
+    document.addEventListener('keydown', e => { if (RIDER_ON && !sheetClose && e.key === 'Escape') closeRider(); });
+  }
+  const part = (title, body) => (body ? `<h2>${title}</h2><p class="rider-text">${esc(body)}</p>` : '');
+  const contact = [p.contact, p.phone, p.mail].filter(Boolean).join(' · ');
+  const thin = !lineup.some(m => m.needs) && !p.needs && !p.brings;
+  el.innerHTML = `<div class="rider-bar">
+      <button class="txt-btn accent" data-print>imprimer ou PDF</button>
+      <button class="txt-btn" data-copy>copier le texte</button>
+      <button class="txt-btn" data-edit>modifier</button>
+      <button class="txt-btn" data-close>fermer</button>
+    </div>
+    ${thin ? '<p class="rider-tip">Cette fiche est encore légère : remplis « Qui joue quoi » et « Sur scène » dans la fiche du groupe pour qu\'une salle ait ce qu\'il lui faut.</p>' : ''}
+    <article class="rider-page">
+      <header class="rider-head">
+        ${isCover(g.cover) ? `<img src="${g.cover}" alt="">` : ''}
+        <div><p class="rider-kind">Fiche technique</p>
+          <h1>${esc(g.name)}</h1>
+          <p class="rider-tag">${esc([p.style, p.city, p.set ? `set de ${p.set}` : ''].filter(Boolean).join(' · '))}</p></div>
+      </header>
+      ${lineup.length ? `<h2>Line-up</h2><table><thead><tr><th>Musicien</th><th>Instrument</th><th>Besoins sur scène</th></tr></thead><tbody>
+        ${lineup.map(m => `<tr><td>${esc(m.name || '')}</td><td>${esc(m.inst || '')}</td><td>${esc(m.needs || '')}</td></tr>`).join('')}</tbody></table>` : ''}
+      ${part('Le groupe apporte', p.brings)}
+      ${part('À fournir par la salle', p.needs)}
+      ${part('Remarques', p.notes)}
+      ${contact || p.links ? `<h2>Contact</h2><p class="rider-text">${esc([contact, p.links].filter(Boolean).join('\n'))}</p>` : ''}
+      <p class="rider-foot">Fiche du ${new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
+    </article>`;
+  el.onclick = async e => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    if (b.hasAttribute('data-close')) closeRider();
+    if (b.hasAttribute('data-print')) window.print();
+    if (b.hasAttribute('data-edit')) { closeRider(); editBand(g); }
+    if (b.hasAttribute('data-copy')) {
+      try { await navigator.clipboard.writeText(riderText(g)); toast('Fiche copiée'); }
+      catch { await promptText('Copie ce texte', riderText(g), { multiline: true }); }
+    }
+  };
+  RIDER_ON = true;
+  el.hidden = false;
+  el.scrollTop = 0;
+  document.body.classList.add('riding');
 }
 
 // Barre de choix : mes idées, ou celles d'un groupe.
@@ -3067,6 +3194,7 @@ function wireUi() {
     const g = groupById(S.scope);
     const band = e.target.closest('[data-band]');
     if (g && (e.target.closest('#bandNew') || band?.dataset.band === 'edit')) editBand(g);
+    if (g && band?.dataset.band === 'rider') openRider(g);
     if (g && band?.dataset.band === 'fold') { if (!BAND_OPEN.delete(g.id)) BAND_OPEN.add(g.id); render(); }
   };
   $('#search').oninput = e => { S.filter.q = e.target.value; render(); };
@@ -3148,7 +3276,7 @@ function wireUi() {
 
   // Barre d'espace = enregistrer / arrêter (sur PC)
   document.addEventListener('keydown', e => {
-    if (e.code !== 'Space' || sheetClose || STAGE.on || /INPUT|TEXTAREA/.test(document.activeElement?.tagName)) return;
+    if (e.code !== 'Space' || sheetClose || STAGE.on || RIDER_ON || /INPUT|TEXTAREA/.test(document.activeElement?.tagName)) return;
     e.preventDefault();
     if (REC.recorder) stopRecording(false); else startRecording(null);
   });

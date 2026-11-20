@@ -38,8 +38,10 @@ dans une **idée** (nouvelle ou suite d'une idée existante). Tu peux glisser le
 - **Albums** : « + nouvel album » en haut (album, EP, maquette, ou un autre mot). Dès qu'un album existe, la page
   montre les albums ; on en ouvre un pour voir ses morceaux, une ligne chacun, et on touche un morceau pour l'ouvrir.
   L'ordre des pistes se change en glissant (appui long au doigt). Une image peut être ajoutée à l'album (menu ⋯, « Nom, type et image »). Table créée par `supabase-albums.sql`, déjà exécuté.
-- **Fiche du groupe** : dans un groupe, « + présenter le groupe » ajoute une image et un mémo en tête de page. Tout membre
-  peut les modifier. Les adresses web deviennent des liens. Colonnes et fonction dans `supabase-fiche-groupe.sql`, déjà exécuté.
+- **Fiche du groupe** : dans un groupe, « + présenter le groupe ». Quatre parties à remplir à son rythme : le groupe
+  (image, style, ville, description), qui joue quoi, sur scène, contact. Tout membre peut la modifier.
+  « fiche technique » en tire une page à imprimer, à enregistrer en PDF ou à copier en texte.
+  Colonnes et fonction dans `supabase-fiche-groupe.sql`, déjà exécuté.
 - **Setlists (masquées pour l'instant** : dans `app.js`, passer `SETLISTS` à `true` pour les réafficher) : « + nouvelle setlist » en haut. On coche les morceaux dans l'ordre du concert, puis on réordonne en
   glissant (appui long au doigt) ou par le menu ⋯ du morceau. La durée affichée est une estimation : la prise la plus
   longue de chaque morceau. « mode scène » affiche paroles et accords en grand, un morceau à la fois (flèches du
