@@ -269,6 +269,12 @@ class CloudStore {
     if (error) { this.knownTakes.delete(take.id); throw error; }
   }
 
+  /* ----- albums ----- */
+  listAlbums() { return this._check(this.sb.from('albums').select('*')); }
+  addAlbum(a) { return this._check(this.sb.from('albums').insert(a).select().single()); }
+  saveAlbum(a) { return this._check(this.sb.from('albums').update({ name: a.name, kind: a.kind, position: a.position }).eq('id', a.id)); }
+  deleteAlbum(id) { return this._check(this.sb.from('albums').delete().eq('id', id)); }
+
   /* ----- discussion ----- */
   listComments() { return this._check(this.sb.from('comments').select('*').order('created_at')); }
   addComment(c) { return this._check(this.sb.from('comments').insert(c).select().single()); }

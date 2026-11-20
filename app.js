@@ -14,6 +14,8 @@ const S = {
   groups: [],
   members: [],
   comments: [],
+  albums: [],
+  openIdea: null, // morceau déplié dans la vue par albums
   scope: 'me', // 'me' = mes idées, sinon l'identifiant d'un groupe
   filter: { q: '', tags: new Set(), star: false },
   playing: null,
@@ -118,6 +120,19 @@ const loadSnap = () => { try { return JSON.parse(localStorage.getItem('fredon.sn
 const ideaTitle = idea => idea.title || `Idée du ${fmtDay(idea.created_at)}`;
 const allTags = () => [...new Set(visibleIdeas().flatMap(i => i.tags || []))].sort((a, b) => a.localeCompare(b, 'fr'));
 const recentIdeas = () => visibleIdeas().sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+/* Albums : un morceau est rangé dans un seul album de son espace (perso ou groupe), ou dans aucun. */
+const scopeGroup = () => (S.scope === 'me' ? null : S.scope);
+const albumById = id => S.albums.find(a => a.id === id);
+const scopeAlbums = () => S.albums.filter(a => (a.group_id || null) === scopeGroup())
+  .sort((a, b) => a.position - b.position || a.created_at.localeCompare(b.created_at));
+const albumOf = idea => { const a = idea.album_id ? albumById(idea.album_id) : null; return a && (a.group_id || null) === (idea.group_id || null) ? a : null; };
+const tracksOf = albumId => visibleIdeas().filter(i => (albumOf(i)?.id || null) === albumId)
+  .sort(albumId ? (a, b) => (a.track || 0) - (b.track || 0) || a.created_at.localeCompare(b.created_at) : (a, b) => b.updated_at.localeCompare(a.updated_at));
+const nextTrack = albumId => tracksOf(albumId).reduce((m, i) => Math.max(m, i.track || 0), 0) + 1;
+const albumView = () => isCloud() && scopeAlbums().length > 0;
+const ALB_OPEN = (() => { try { return new Set(JSON.parse(localStorage.getItem('fredon.albumsOpen') || '[]')); } catch { return new Set(); } })();
+const saveAlbOpen = () => { try { localStorage.setItem('fredon.albumsOpen', JSON.stringify([...ALB_OPEN])); } catch {} };
+const morceaux = n => `${n} ${n > 1 ? 'morceaux' : 'morceau'}`;
 function hashOf(str) { let h = 7; for (const ch of String(str)) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return h; }
 const ideaColor = idea => (idea && idea.color) || PALETTE[hashOf(idea ? idea.id : '') % PALETTE.length];
 const fmtLong = sec => (sec < 60 ? `${Math.round(sec)} s` : sec < 3600 ? `${Math.round(sec / 60)} min` : `${Math.floor(sec / 3600)} h ${String(Math.round(sec % 3600 / 60)).padStart(2, '0')}`);
@@ -247,7 +262,7 @@ function takeHtml(t, index, inInbox) {
 }
 
 const UNFOLDED = new Set(); // idées dont le texte est déplié
-function blockHtml(idea, list) {
+function blockHtml(idea, list, full = false) {
   if (!idea) {
     return `<section class="block inbox" data-drop="inbox">
       <div class="block-head"><h3 class="block-title">À trier<span class="count">${list.length}</span></h3></div>
@@ -263,8 +278,8 @@ function blockHtml(idea, list) {
   const music = [idea.bpm ? `${idea.bpm} bpm` : '', idea.tona || ''].filter(Boolean).join(' · ');
   // Paroles et accords repliés par défaut : « tout lire » les déplie, idée par idée.
   const long = (idea.notes || '').split('\n').length > 2 || (idea.notes || '').length > 90 || (idea.chords || '').split('\n').length > 2;
-  const open = long && UNFOLDED.has(idea.id);
-  return `<section class="block" data-drop="${idea.id}">
+  const open = full || (long && UNFOLDED.has(idea.id));
+  return `<section class="block ${full ? 'in-album' : ''}" data-drop="${idea.id}">
     <div class="block-head">
       <h3 class="block-title ${idea.title ? '' : 'placeholder'}" data-action="rename" data-idea="${idea.id}">${esc(ideaTitle(idea))}</h3>
       <button class="star ${idea.starred ? 'on' : ''}" data-action="star" data-idea="${idea.id}" aria-label="Favori">${idea.starred ? '★' : '☆'}</button>
@@ -275,7 +290,7 @@ function blockHtml(idea, list) {
     ${music ? `<button class="tempo-chip" data-action="tempo" data-idea="${idea.id}" title="Modifier">${esc(music)}</button>` : ''}
     ${idea.chords ? `<div class="chords ${open ? 'open' : ''}" data-action="tempo" data-idea="${idea.id}" title="Modifier">${esc(idea.chords)}</div>` : ''}
     ${idea.notes ? `<div class="lyrics ${open ? 'open' : ''}" data-action="text" data-idea="${idea.id}" title="Modifier le texte">${esc(idea.notes)}</div>` : ''}
-    ${long ? `<button class="txt-btn fold" data-action="fold" data-idea="${idea.id}">${open ? 'replier' : 'tout lire'}</button>` : ''}
+    ${long && !full ? `<button class="txt-btn fold" data-action="fold" data-idea="${idea.id}">${open ? 'replier' : 'tout lire'}</button>` : ''}
     <ol class="takes">${(() => { let n = 0; return list.map(t => takeHtml(t, baseOf(t) ? n - 1 : n++, false)).join(''); })()}</ol>
     <div class="block-foot">
       <button class="add-take" data-action="record-into" data-idea="${idea.id}">${list.length ? '+ enregistrer une suite' : '+ enregistrer'}</button>
@@ -287,6 +302,43 @@ function blockHtml(idea, list) {
   </section>`;
 }
 
+function songHtml(idea, n, numbered) {
+  const open = S.openIdea === idea.id;
+  const takes = takesOf(idea.id);
+  const meta = [idea.bpm ? `${idea.bpm} bpm` : '', idea.tona || '', takes.length ? plural(takes.length, 'prise') : ''].filter(Boolean).join(' · ');
+  return `<li class="song ${open ? 'open' : ''}" data-song="${idea.id}">
+    <div class="song-row" data-action="song-toggle" data-idea="${idea.id}">
+      <span class="num">${numbered ? String(n + 1).padStart(2, '0') : '–'}</span>
+      <span class="song-title">${esc(ideaTitle(idea))}</span>${newsOf(idea).any ? '<span class="news">nouveau</span>' : ''}
+      <span class="song-meta">${esc(meta)}</span>
+    </div>
+    ${open ? blockHtml(idea, takes, true) : ''}
+  </li>`;
+}
+function albumsHtml() {
+  const f = S.filter;
+  const filtering = !!(f.q || f.star || f.tags.size);
+  return [...scopeAlbums(), null].map(a => {
+    const all = tracksOf(a ? a.id : null);
+    const list = all.filter(matchesIdea);
+    if ((!a && !all.length) || (filtering && !list.length)) return '';
+    const key = a ? a.id : 'none';
+    const open = filtering || ALB_OPEN.has(key) || list.some(i => i.id === S.openIdea);
+    const dur = list.reduce((sum, i) => sum + takesOf(i.id).filter(t => !baseOf(t)).reduce((x, t) => x + lenOf(t), 0), 0);
+    const meta = [morceaux(list.length), dur ? fmtLong(dur) : ''].filter(Boolean).join(' · ');
+    return `<section class="album ${open ? 'open' : ''}" data-album="${key}">
+      <div class="album-head" data-action="album-toggle" data-album-id="${key}">
+        <span class="album-kind">${a ? esc(a.kind) : 'En vrac'}</span>
+        <h2 class="album-name">${a ? esc(a.name) : 'Sans album'}</h2>
+        ${a ? `<button class="mini-btn" data-action="album-menu" data-album-id="${key}" aria-label="Options de l'album">${ICONS.more}</button>` : ''}
+        <p class="album-meta">${list.some(i => newsOf(i).any) ? '<span class="news">nouveau</span>' : ''}${esc(meta)}<i class="album-chev">${open ? 'replier' : 'ouvrir'}</i></p>
+      </div>
+      ${open ? `<ol class="songs">${list.map((i, n) => songHtml(i, n, !!a)).join('')}</ol>
+        ${a ? `<div class="album-foot"><button class="add-take" data-action="album-add" data-album-id="${key}">+ ajouter des morceaux</button><button class="add-take" data-action="album-song" data-album-id="${key}">+ nouvelle chanson</button></div>` : ''}` : ''}
+    </section>`;
+  }).join('');
+}
+
 function renderHero() {
   const hero = $('#hero');
   const ideas = visibleIdeas();
@@ -296,7 +348,8 @@ function renderHero() {
   const t = takes.length;
   const total = takes.reduce((sum, x) => sum + lenOf(x), 0);
   hero.innerHTML = (n || t ? `<p><b>${n}</b> ${n > 1 ? 'idées' : 'idée'} · <b>${t}</b> ${t > 1 ? 'prises' : 'prise'} · <b>${fmtLong(total)}</b></p>` : '') +
-    '<button class="txt-btn new-song" id="newSong">+ nouvelle chanson</button>';
+    '<button class="txt-btn new-song" id="newSong">+ nouvelle chanson</button>' +
+    (isCloud() ? '<button class="txt-btn new-song" id="newAlbum">+ nouvel album</button>' : '');
 }
 
 // Barre de choix : mes idées, ou celles d'un groupe.
@@ -312,6 +365,7 @@ function renderScopes() {
 }
 function setScope(id) {
   S.scope = id === 'me' || groupById(id) ? id : 'me';
+  S.openIdea = null;
   try { localStorage.setItem('fredon.scope', S.scope); } catch {}
   S.filter.tags.clear();
   S.filter.star = false;
@@ -328,8 +382,10 @@ function render() {
   let inbox = inboxTakes();
   if (f.q) inbox = inbox.filter(t => norm(t.title || fmtDayTime(t.created_at)).includes(norm(f.q)));
   if (inbox.length && !f.star && !f.tags.size) html += blockHtml(null, inbox);
-  const ideas = recentIdeas().filter(matchesIdea);
-  html += ideas.map(i => blockHtml(i, takesOf(i.id))).join('');
+  const byAlbum = albumView();
+  board.classList.toggle('albums-view', byAlbum);
+  if (byAlbum) html += albumsHtml();
+  else html += recentIdeas().filter(matchesIdea).map(i => blockHtml(i, takesOf(i.id))).join('');
   board.innerHTML = html;
   $('#empty').hidden = visibleIdeas().length > 0 || inboxTakes().length > 0;
   updatePlayUI();
@@ -673,15 +729,166 @@ async function saveIdea(idea) {
   await S.store.saveIdea(idea);
 }
 // Une chanson sans enregistrement : on la nomme, on écrit, les prises viendront après.
-async function createSong() {
+async function createSong(albumId = null) {
   const name = await promptText('Nom de la chanson', '', { placeholder: 'Ex : balade en La mineur' });
   if (!name) return;
   const idea = newIdea({ title: name });
+  if (albumId && albumById(albumId)) { idea.album_id = albumId; idea.track = nextTrack(albumId); S.openIdea = idea.id; }
   try { await saveIdea(idea); }
   catch (e) { S.ideas = S.ideas.filter(x => x !== idea); render(); return fail(e, 'Création impossible'); }
   render();
   editText(idea);
 }
+/* ---------------- Albums ---------------- */
+const KINDS = ['Album', 'EP', 'Maquette', 'Single'];
+function albumSheet(album) {
+  let kind = album ? album.kind : 'Album';
+  return openSheet(`<h2>${album ? "Modifier l'album" : 'Nouvel album'}</h2>
+    <label class="label" for="aName">Nom</label>
+    <input class="field" id="aName" maxlength="80" autocomplete="off" placeholder="Ex : Premier EP" value="${esc(album ? album.name : '')}">
+    <label class="label">Type</label>
+    <div class="kinds">${KINDS.map(k => `<button class="kind" data-kind="${k}">${k}</button>`).join('')}</div>
+    <input class="field" id="aKind" maxlength="24" autocomplete="off" placeholder="Ou un autre mot : live, répète, démo…" style="margin-top:10px">
+    <div class="row"><button class="btn" data-x>Annuler</button><button class="btn primary" data-ok>${album ? 'Enregistrer' : 'Créer'}</button></div>`,
+  (sh, close) => {
+    const name = sh.querySelector('#aName');
+    const other = sh.querySelector('#aKind');
+    const paint = () => sh.querySelectorAll('[data-kind]').forEach(b => b.classList.toggle('on', b.dataset.kind === kind));
+    if (!KINDS.includes(kind)) other.value = kind;
+    paint();
+    sh.querySelectorAll('[data-kind]').forEach(b => { b.onclick = () => { kind = b.dataset.kind; other.value = ''; paint(); }; });
+    other.oninput = () => { kind = other.value.trim() || 'Album'; paint(); };
+    setTimeout(() => name.focus(), 60);
+    const ok = () => { if (!name.value.trim()) { toast("Donne un nom à l'album"); return; } close({ name: name.value.trim(), kind }); };
+    name.onkeydown = e => { if (e.key === 'Enter') ok(); };
+    sh.querySelector('[data-x]').onclick = () => close(null);
+    sh.querySelector('[data-ok]').onclick = ok;
+  });
+}
+async function createAlbum() {
+  const v = await albumSheet(null);
+  if (!v) return;
+  try {
+    const list = scopeAlbums();
+    const row = await S.store.addAlbum({ name: v.name, kind: v.kind, group_id: scopeGroup(), position: list.length ? list[list.length - 1].position + 1 : 0 });
+    S.albums.push(row);
+    ALB_OPEN.add(row.id); saveAlbOpen();
+    render();
+    if (tracksOf(null).length) fillAlbum(row);
+  } catch (e) { fail(e, isNetErr(e) ? 'Il faut du réseau pour créer un album' : 'Création impossible'); }
+}
+// Cocher les morceaux à ranger dans l'album.
+async function fillAlbum(album) {
+  const list = visibleIdeas().filter(i => albumOf(i) !== album)
+    .sort((a, b) => (albumOf(a) ? 1 : 0) - (albumOf(b) ? 1 : 0) || ideaTitle(a).localeCompare(ideaTitle(b), 'fr'));
+  if (!list.length) { toast('Tous les morceaux sont déjà dans cet album'); return; }
+  const sel = new Set();
+  const ok = await openSheet(`<h2>Ajouter à « ${esc(album.name)} »</h2>
+    <p class="sub">Touche les morceaux à ranger dans cet album.</p>
+    <div class="choices picks">${list.map(i => `<button class="choice pick" data-pick="${i.id}"><span class="ico"></span><span>${esc(ideaTitle(i))}<small>${esc(albumOf(i)?.name || '')}</small></span></button>`).join('')}</div>
+    <div class="row"><button class="btn" data-x>Annuler</button><button class="btn primary" data-ok>Ajouter</button></div>`,
+  (sh, close) => {
+    const btn = sh.querySelector('[data-ok]');
+    sh.querySelectorAll('[data-pick]').forEach(b => { b.onclick = () => {
+      if (!sel.delete(b.dataset.pick)) sel.add(b.dataset.pick);
+      b.classList.toggle('on', sel.has(b.dataset.pick));
+      btn.textContent = sel.size ? `Ajouter ${morceaux(sel.size)}` : 'Ajouter';
+    }; });
+    sh.querySelector('[data-x]').onclick = () => close(false);
+    btn.onclick = () => close(true);
+  });
+  if (!ok || !sel.size) return;
+  try {
+    let track = nextTrack(album.id);
+    for (const i of list.filter(x => sel.has(x.id))) { i.album_id = album.id; i.track = track++; await S.store.saveIdea(i); }
+    ALB_OPEN.add(album.id); saveAlbOpen();
+    render();
+    toast(`${morceaux(sel.size)} dans « ${album.name} »`);
+  } catch (e) { fail(e, 'Rangement impossible'); await reload(); }
+}
+async function albumMenu(album) {
+  const list = scopeAlbums();
+  const at = list.indexOf(album);
+  const v = await actionSheet(album.name, [
+    { label: 'Ajouter des morceaux', value: 'fill' },
+    { label: 'Renommer ou changer le type', value: 'edit', sub: album.kind },
+    at > 0 && { label: 'Monter', value: 'up' },
+    at < list.length - 1 && { label: 'Descendre', value: 'down' },
+    (isMine(album) || isAdmin(album.group_id)) && { label: "Supprimer l'album", value: 'delete', cls: 'danger', sub: 'Ses morceaux sont gardés' },
+  ].filter(Boolean));
+  try {
+    if (v === 'fill') return fillAlbum(album);
+    if (v === 'edit') {
+      const e = await albumSheet(album);
+      if (!e) return;
+      Object.assign(album, e);
+      render();
+      await S.store.saveAlbum(album);
+    }
+    if (v === 'up' || v === 'down') {
+      const to = at + (v === 'up' ? -1 : 1);
+      [list[at], list[to]] = [list[to], list[at]];
+      const changed = list.filter((a, i) => a.position !== i);
+      list.forEach((a, i) => { a.position = i; });
+      render();
+      for (const a of changed) await S.store.saveAlbum(a);
+    }
+    if (v === 'delete') {
+      const n = tracksOf(album.id).length;
+      if (!(await confirmBox(`Supprimer « ${album.name} » ?`, n ? `Ses ${morceaux(n)} ne sont pas supprimés : ils passent dans « Sans album ».` : 'Il est vide.', 'Supprimer'))) return;
+      await S.store.deleteAlbum(album.id);
+      S.albums = S.albums.filter(a => a !== album);
+      for (const i of S.ideas) if (i.album_id === album.id) i.album_id = null;
+      ALB_OPEN.delete(album.id); saveAlbOpen();
+      render();
+    }
+  } catch (e) { fail(e, 'Action impossible'); await reload(); }
+}
+// Ranger un morceau depuis son menu.
+async function fileIdea(idea) {
+  const cur = albumOf(idea);
+  const v = await actionSheet(`Ranger « ${ideaTitle(idea)} »`, [
+    ...scopeAlbums().filter(a => a !== cur).map(a => ({ label: a.name, value: a.id, sub: a.kind })),
+    { label: 'Nouvel album…', value: 'new', cls: 'primary' },
+    cur && { label: `Sortir de « ${cur.name} »`, value: 'none' },
+  ].filter(Boolean));
+  if (!v) return;
+  if (v === 'new') return createAlbum();
+  const album = v === 'none' ? null : albumById(v);
+  idea.album_id = album ? album.id : null;
+  idea.track = album ? nextTrack(album.id) : 0;
+  if (album) { ALB_OPEN.add(album.id); saveAlbOpen(); }
+  render();
+  try { await S.store.saveIdea(idea); toast(album ? `Rangé dans « ${album.name} »` : 'Sorti de l\'album'); }
+  catch (e) { fail(e, 'Rangement impossible'); await reload(); }
+}
+// Glisser un morceau : sur un autre album, ou entre deux morceaux pour changer l'ordre des pistes.
+async function moveSong(id, target) {
+  const idea = ideaById(id);
+  if (!idea) return;
+  const albumId = target.album === 'none' ? null : target.album;
+  if (albumId && !albumById(albumId)) return;
+  const from = albumOf(idea)?.id || null;
+  const sibs = tracksOf(albumId).filter(i => i !== idea);
+  const ref = target.refId ? sibs.findIndex(i => i.id === target.refId) : -1;
+  if (from === albumId && ref < 0) return;
+  let track = 0;
+  if (albumId) {
+    if (ref >= 0) {
+      const r = sibs[ref].track || 0;
+      if (target.before) { const p = sibs[ref - 1]; track = p ? ((p.track || 0) + r) / 2 : r - 1; }
+      else { const n = sibs[ref + 1]; track = n ? (r + (n.track || 0)) / 2 : r + 1; }
+    } else track = sibs.length ? (sibs[sibs.length - 1].track || 0) + 1 : 1;
+  }
+  idea.album_id = albumId;
+  idea.track = track;
+  render();
+  try {
+    await S.store.saveIdea(idea);
+    toast(from === albumId ? 'Ordre modifié' : albumId ? `Rangé dans « ${albumById(albumId).name} »` : 'Sorti de l\'album');
+  } catch (e) { fail(e, 'Déplacement impossible'); await reload(); }
+}
+
 let importDest = null; // idée qui recevra les fichiers choisis (rien = « À trier »)
 function pickImport(ideaId = null) { importDest = ideaId; $('#importInput').click(); }
 async function touchIdea(idea) {
@@ -1184,6 +1391,7 @@ async function ideaMenu(idea) {
     { label: idea.starred ? 'Retirer des favoris' : 'Ajouter aux favoris', ico: '★', value: 'star' },
     isCloud() && !group && S.groups.length && isMine(idea) && { label: 'Partager avec un groupe', value: 'share', sub: 'Les membres pourront écouter et ajouter' },
     group && isMine(idea) && { label: `Retirer de « ${group.name} »`, value: 'unshare', sub: 'Elle redevient personnelle' },
+    isCloud() && { label: 'Ranger dans un album', value: 'album', sub: albumOf(idea)?.name || '' },
     { label: 'Importer des enregistrements', ico: '↑', value: 'import', sub: 'Des fichiers audio de cet appareil' },
     takesOf(idea.id).length && { label: 'Exporter pour Reaper', ico: '↓', value: 'export', sub: 'Un fichier WAV par piste, déjà calés, dans un .zip' },
     { label: 'Fusionner avec une autre idée', ico: '⇄', value: 'merge', sub: 'Déplace toutes ses prises' },
@@ -1194,6 +1402,7 @@ async function ideaMenu(idea) {
     if (v === 'tempo') return editTempo(idea);
     if (v === 'export') return exportIdea(idea);
     if (v === 'import') return pickImport(idea.id);
+    if (v === 'album') return fileIdea(idea);
     if (v === 'star') { idea.starred = !idea.starred; render(); return S.store.saveIdea(idea); }
     if (v === 'color') {
       const cur = ideaColor(idea);
@@ -1209,6 +1418,7 @@ async function ideaMenu(idea) {
       if (!g) return;
       if (!(await confirmBox(`Partager avec « ${g.name} » ?`, 'Tous les membres pourront écouter cette idée, y ajouter des prises et modifier son texte.', 'Partager'))) return;
       idea.group_id = g.id;
+      idea.album_id = null; // les albums ne suivent pas d'un espace à l'autre
       const name = myMember(g.id)?.name || '';
       for (const t of takesOf(idea.id)) if (isMine(t) && !t.author) { t.author = name; await S.store.saveTake(t); }
       await touchIdea(idea);
@@ -1217,6 +1427,7 @@ async function ideaMenu(idea) {
     }
     if (v === 'unshare') {
       idea.group_id = null;
+      idea.album_id = null;
       await S.store.saveIdea(idea);
       await reload();
       toast('Idée redevenue personnelle');
@@ -1926,6 +2137,7 @@ function beginDrag(p, x, y) {
   const r = p.el.getBoundingClientRect();
   DRAG.offX = x - r.left;
   DRAG.offY = y - r.top;
+  DRAG.kind = p.kind || 'take';
   const g = p.el.cloneNode(true);
   g.classList.add('ghost-drag');
   g.style.width = `${r.width}px`;
@@ -1934,7 +2146,7 @@ function beginDrag(p, x, y) {
   DRAG.ghost = g;
   p.el.classList.add('lifting');
   document.body.classList.add('dragging');
-  ensureDragZones();
+  if (DRAG.kind === 'take') ensureDragZones();
   DRAG.scroll = setInterval(() => {
     if (DRAG.y < 90) window.scrollBy(0, -14);
     else if (DRAG.y > innerHeight - 90) window.scrollBy(0, 14);
@@ -1952,6 +2164,21 @@ function moveDrag(x, y) {
   clearDropMarks();
   DRAG.target = null;
   const under = document.elementFromPoint(x, y);
+  if (DRAG.kind === 'idea') {
+    const sec = under && under.closest('[data-album]');
+    if (!sec) return;
+    sec.classList.add('drop-hover');
+    const target = { album: sec.dataset.album };
+    const row = under.closest('.song');
+    if (row && row.dataset.song !== DRAG.id && target.album !== 'none') {
+      const r = row.querySelector('.song-row').getBoundingClientRect();
+      target.refId = row.dataset.song;
+      target.before = y < r.top + r.height / 2;
+      row.classList.add(target.before ? 'drop-before' : 'drop-after');
+    }
+    DRAG.target = target;
+    return;
+  }
   const block = under && under.closest('[data-drop]');
   if (!block) return;
   block.classList.add('drop-hover');
@@ -1971,11 +2198,11 @@ function endDrag(cancel = false) {
   DRAG.ghost && DRAG.ghost.remove();
   document.body.classList.remove('dragging');
   clearDropMarks();
-  const { id, target } = DRAG;
+  const { id, target, kind } = DRAG;
   Object.assign(DRAG, { active: false, pending: null, ghost: null, el: null, target: null });
   DRAG.justDropped = Date.now();
   render();
-  if (!cancel && target) moveTake(id, target);
+  if (!cancel && target) (kind === 'idea' ? moveSong : moveTake)(id, target);
 }
 
 function wireDrag() {
@@ -1983,9 +2210,9 @@ function wireDrag() {
   // Souris / stylet
   board.addEventListener('pointerdown', e => {
     if (e.pointerType === 'touch' || e.button !== 0) return;
-    const t = e.target.closest('.take');
+    const t = e.target.closest('.take, .song-row');
     if (!t || e.target.closest('button')) return;
-    DRAG.pending = { id: t.dataset.id, el: t, x: e.clientX, y: e.clientY };
+    DRAG.pending = { id: t.dataset.id || t.dataset.idea, kind: t.dataset.idea ? 'idea' : 'take', el: t, x: e.clientX, y: e.clientY };
   });
   document.addEventListener('pointermove', e => {
     if (e.pointerType === 'touch') return;
@@ -2001,10 +2228,10 @@ function wireDrag() {
 
   // Doigt : appui long pour attraper, puis glisser
   board.addEventListener('touchstart', e => {
-    const t = e.target.closest('.take');
+    const t = e.target.closest('.take, .song-row');
     if (!t || e.target.closest('button') || e.touches.length > 1) return;
     const pt = e.touches[0];
-    DRAG.pending = { id: t.dataset.id, el: t, x: pt.clientX, y: pt.clientY };
+    DRAG.pending = { id: t.dataset.id || t.dataset.idea, kind: t.dataset.idea ? 'idea' : 'take', el: t, x: pt.clientX, y: pt.clientY };
     clearTimeout(DRAG.timer);
     DRAG.timer = setTimeout(() => {
       const p = DRAG.pending;
@@ -2026,7 +2253,7 @@ function wireDrag() {
   };
   document.addEventListener('touchend', touchEnd(false));
   document.addEventListener('touchcancel', touchEnd(true));
-  board.addEventListener('contextmenu', e => { if (e.target.closest('.take')) e.preventDefault(); });
+  board.addEventListener('contextmenu', e => { if (e.target.closest('.take, .song-row')) e.preventDefault(); });
 }
 
 /* ---------------- Import de vocaux existants ---------------- */
@@ -2327,22 +2554,23 @@ setInterval(() => {
 
 async function reload(noSync = false) {
   try {
-    if (S.store.kind === 'cloud' && !S.store.user) { S.ideas = []; S.takes = []; S.groups = []; S.members = []; S.comments = []; render(); return; }
+    if (S.store.kind === 'cloud' && !S.store.user) { S.ideas = []; S.takes = []; S.groups = []; S.members = []; S.comments = []; S.albums = []; render(); return; }
     const cloud = S.store.kind === 'cloud';
-    let ideas, takes, groups, members, comments;
+    let ideas, takes, groups, members, comments, albums;
     try {
-      [ideas, takes, groups, members, comments] = await Promise.all([
+      [ideas, takes, groups, members, comments, albums] = await Promise.all([
         S.store.listIdeas(), S.store.listTakes(),
         cloud ? S.store.listGroups() : [], cloud ? S.store.listMembers() : [],
         cloud ? S.store.listComments().catch(e => { if (isNetErr(e)) throw e; return []; }) : [],
+        cloud ? S.store.listAlbums().catch(e => { if (isNetErr(e)) throw e; return []; }) : [],
       ]);
       S.offline = false;
-      if (cloud) saveSnap({ user: me(), ideas, takes, groups, members, comments });
+      if (cloud) saveSnap({ user: me(), ideas, takes, groups, members, comments, albums });
     } catch (e) {
       // Pas de réseau : on repart de la dernière copie gardée sur l'appareil.
       const snap = cloud && isNetErr(e) ? loadSnap() : null;
       if (!snap || snap.user !== me()) { if (!cloud || !isNetErr(e)) throw e; }
-      ({ ideas = [], takes = [], groups = [], members = [], comments = [] } = snap && snap.user === me() ? snap : {});
+      ({ ideas = [], takes = [], groups = [], members = [], comments = [], albums = [] } = snap && snap.user === me() ? snap : {});
       S.store.assumeKnown(ideas, takes);
       S.offline = true;
     }
@@ -2354,6 +2582,7 @@ async function reload(noSync = false) {
       }
     }
     S.comments = comments || [];
+    S.albums = albums || [];
     S.ideas = ideas || [];
     S.takes = takes || [];
     S.groups = (groups || []).sort((a, b) => a.name.localeCompare(b.name, 'fr'));
@@ -2444,7 +2673,7 @@ function wireUi() {
   $('#settingsBtn').onclick = openSettings;
   $('#importBtn').onclick = () => pickImport();
   $('#importInput').onchange = e => { const f = e.target.files; if (f && f.length) importFiles(f, ideaById(importDest) ? importDest : undefined); e.target.value = ''; };
-  $('#hero').onclick = e => { if (e.target.closest('#newSong')) createSong(); };
+  $('#hero').onclick = e => { if (e.target.closest('#newSong')) createSong(); if (e.target.closest('#newAlbum')) createAlbum(); };
   $('#search').oninput = e => { S.filter.q = e.target.value; render(); };
 
   $('#scopes').onclick = e => {
@@ -2476,6 +2705,12 @@ function wireUi() {
     if (!el) return;
     const a = el.dataset.action;
     const idea = ideaById(el.dataset.idea);
+    const albumId = el.dataset.albumId;
+    if (a === 'album-toggle') { if (!ALB_OPEN.delete(albumId)) ALB_OPEN.add(albumId); else if (tracksOf(albumId === 'none' ? null : albumId).some(i => i.id === S.openIdea)) S.openIdea = null; saveAlbOpen(); render(); }
+    if (a === 'album-menu' && albumById(albumId)) albumMenu(albumById(albumId));
+    if (a === 'album-add' && albumById(albumId)) fillAlbum(albumById(albumId));
+    if (a === 'album-song' && albumById(albumId)) createSong(albumId);
+    if (a === 'song-toggle' && idea) { S.openIdea = S.openIdea === idea.id ? null : idea.id; if (S.openIdea && newsOf(idea).any) markSeen(idea); render(); }
     if (a === 'talk' && idea) talkSheet(idea);
     if (a === 'play') play(el.dataset.id);
     if (a === 'seek') {
