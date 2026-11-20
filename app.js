@@ -376,17 +376,19 @@ function bandHtml(g) {
   const long = memo.split('\n').length > 3 || memo.length > 170 || more;
   const open = long && BAND_OPEN.has(g.id);
   return `<div class="band ${open ? 'open' : ''}">
-    ${pic ? `<img class="band-cover" src="${g.cover}" alt="">` : ''}
-    <div class="band-text">
-      ${tag ? `<p class="band-tag">${esc(tag)}</p>` : ''}
-      ${memo ? `<div class="band-memo">${linkify(memo)}</div>` : ''}
-      ${open && more ? `<dl class="band-more">
-        ${lineup.length ? `<dt>Line-up</dt><dd>${lineup.map(m => esc(m.name || '?') + (m.inst ? ` <i>${esc(m.inst)}</i>` : '')).join('<br>')}</dd>` : ''}
-        ${contact ? `<dt>Contact</dt><dd>${esc(contact)}</dd>` : ''}
-        ${p.links ? `<dt>Liens</dt><dd class="band-links">${linkify(p.links)}</dd>` : ''}
-      </dl>` : ''}
-      <p class="band-acts">${long ? `<button class="txt-btn" data-band="fold">${open ? 'replier' : 'tout lire'}</button>` : ''}<button class="txt-btn" data-band="edit">modifier</button><button class="txt-btn accent" data-band="rider">fiche technique</button></p>
+    <div class="band-top">
+      ${pic ? `<img class="band-cover" src="${g.cover}" alt="">` : ''}
+      <div class="band-text">
+        ${tag ? `<p class="band-tag">${esc(tag)}</p>` : ''}
+        ${memo ? `<div class="band-memo">${linkify(memo)}</div>` : ''}
+      </div>
     </div>
+    ${open && more ? `<div class="band-more">
+      ${lineup.length ? `<section><h4>Line-up</h4><ul class="band-lineup">${lineup.map(m => `<li><b>${esc(m.name || '?')}</b><span>${esc(m.inst || '')}</span></li>`).join('')}</ul></section>` : ''}
+      ${contact ? `<section><h4>Contact</h4>${p.contact ? `<p><b>${esc(p.contact)}</b></p>` : ''}${p.phone ? `<p>${esc(p.phone)}</p>` : ''}${p.mail ? `<p>${esc(p.mail)}</p>` : ''}</section>` : ''}
+      ${p.links ? `<section><h4>Liens</h4><p class="band-links">${linkify(p.links)}</p></section>` : ''}
+    </div>` : ''}
+    <p class="band-acts">${long ? `<button class="txt-btn" data-band="fold">${open ? 'replier' : 'tout lire'}</button>` : ''}<button class="txt-btn" data-band="edit">modifier</button><button class="txt-btn accent" data-band="rider">fiche technique</button></p>
   </div>`;
 }
 async function editBand(g) {

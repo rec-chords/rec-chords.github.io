@@ -665,3 +665,20 @@ body.riding { overflow: hidden; }
   .rider-bar, .rider-tip { display: none !important; }
   .rider-page { max-width: none; padding: 16mm 16mm 12mm; }
 }
+
+/* ---------- Fiche du groupe : mise en page aérée ---------- */
+.band { display: block; flex: 0 0 100%; max-width: 820px; margin: 10px 0 12px; padding-bottom: 26px; border-bottom: 1px solid var(--line); }
+.band ~ p { flex: 0 0 100%; margin-top: 10px; }
+.band-top { display: flex; gap: 22px; align-items: flex-start; }
+.band .band-tag { margin: 2px 0 12px; }
+.band-memo { line-height: 1.6; }
+.band-more { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 34px 48px; margin: 30px 0 0; padding-top: 28px; border-top: 1px solid var(--line); font: 16px/1.55 var(--sans); color: var(--text); }
+.band-more h4 { margin: 0 0 12px; font: 500 12.5px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.band-more p { margin: 0 0 6px; overflow-wrap: anywhere; }
+.band-more b { font-weight: 600; }
+.band-lineup { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+.band-lineup li { display: flex; justify-content: space-between; align-items: baseline; gap: 18px; padding: 11px 0; border-bottom: 1px solid var(--line); }
+.band-lineup span { color: var(--muted); text-align: right; }
+.band-links { line-height: 2; }
+.band .band-acts { margin: 26px 0 0; gap: 12px 26px; }
+@media (max-width: 520px) { .band-top { gap: 16px; } .band-more { gap: 30px; } }
