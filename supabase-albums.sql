@@ -36,3 +36,8 @@ create policy "albums: modifier" on public.albums for update to authenticated
 drop policy if exists "albums: supprimer" on public.albums;
 create policy "albums: supprimer" on public.albums for delete to authenticated
   using ((group_id is null and user_id = auth.uid()) or (group_id is not null and (user_id = auth.uid() and public.is_member(group_id) or public.is_admin(group_id))));
+
+-- Image de l'album : une petite vignette (réduite par l'appli), gardée dans la ligne elle-même.
+alter table public.albums add column if not exists cover text not null default '';
+alter table public.albums drop constraint if exists albums_cover_size;
+alter table public.albums add constraint albums_cover_size check (char_length(cover) <= 200000);

@@ -327,7 +327,8 @@ function albumsHtml() {
     const dur = list.reduce((sum, i) => sum + takesOf(i.id).filter(t => !baseOf(t)).reduce((x, t) => x + lenOf(t), 0), 0);
     const meta = [morceaux(list.length), dur ? fmtLong(dur) : ''].filter(Boolean).join(' · ');
     return `<section class="album ${open ? 'open' : ''}" data-album="${key}">
-      <div class="album-head" data-action="album-toggle" data-album-id="${key}">
+      <div class="album-head ${a && isCover(a.cover) ? 'has-cover' : ''}" data-action="album-toggle" data-album-id="${key}">
+        ${a && isCover(a.cover) ? `<img class="album-cover" src="${a.cover}" alt="">` : ''}
         <span class="album-kind">${a ? esc(a.kind) : 'En vrac'}</span>
         <h2 class="album-name">${a ? esc(a.name) : 'Sans album'}</h2>
         ${a ? `<button class="mini-btn" data-action="album-menu" data-album-id="${key}" aria-label="Options de l'album">${ICONS.more}</button>` : ''}
@@ -741,25 +742,62 @@ async function createSong(albumId = null) {
 }
 /* ---------------- Albums ---------------- */
 const KINDS = ['Album', 'EP', 'Maquette', 'Single'];
+// Réduit l'image choisie à une vignette carrée, assez légère pour voyager avec l'album.
+async function coverFrom(file) {
+  const img = await new Promise((resolve, reject) => {
+    const el = new Image();
+    el.onload = () => resolve(el);
+    el.onerror = () => reject(new Error('Image illisible'));
+    el.src = URL.createObjectURL(file);
+  });
+  const side = Math.min(img.naturalWidth, img.naturalHeight);
+  const c = document.createElement('canvas');
+  c.width = c.height = Math.min(360, side);
+  c.getContext('2d').drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, c.width, c.height);
+  URL.revokeObjectURL(img.src);
+  return c.toDataURL('image/jpeg', 0.8);
+}
+const isCover = v => /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(v || '');
 function albumSheet(album) {
   let kind = album ? album.kind : 'Album';
+  let cover = album && isCover(album.cover) ? album.cover : '';
   return openSheet(`<h2>${album ? "Modifier l'album" : 'Nouvel album'}</h2>
     <label class="label" for="aName">Nom</label>
     <input class="field" id="aName" maxlength="80" autocomplete="off" placeholder="Ex : Premier EP" value="${esc(album ? album.name : '')}">
     <label class="label">Type</label>
     <div class="kinds">${KINDS.map(k => `<button class="kind" data-kind="${k}">${k}</button>`).join('')}</div>
     <input class="field" id="aKind" maxlength="24" autocomplete="off" placeholder="Ou un autre mot : live, répète, démo…" style="margin-top:10px">
+    <label class="label">Image</label>
+    <div class="cover-row"><span class="cover-box" id="aCover"></span>
+      <button class="txt-btn accent" data-cover>choisir une image</button><button class="txt-btn danger" data-nocover>retirer</button>
+      <input type="file" id="aFile" accept="image/*" hidden></div>
     <div class="row"><button class="btn" data-x>Annuler</button><button class="btn primary" data-ok>${album ? 'Enregistrer' : 'Créer'}</button></div>`,
   (sh, close) => {
     const name = sh.querySelector('#aName');
     const other = sh.querySelector('#aKind');
     const paint = () => sh.querySelectorAll('[data-kind]').forEach(b => b.classList.toggle('on', b.dataset.kind === kind));
     if (!KINDS.includes(kind)) other.value = kind;
+    const file = sh.querySelector('#aFile');
+    const showCover = () => {
+      sh.querySelector('#aCover').innerHTML = cover ? `<img src="${cover}" alt="">` : '';
+      sh.querySelector('[data-cover]').textContent = cover ? 'changer' : 'choisir une image';
+      sh.querySelector('[data-nocover]').hidden = !cover;
+    };
+    sh.querySelector('[data-cover]').onclick = () => file.click();
+    sh.querySelector('#aCover').onclick = () => file.click();
+    sh.querySelector('[data-nocover]').onclick = () => { cover = ''; showCover(); };
+    file.onchange = async () => {
+      const f = file.files[0];
+      file.value = '';
+      if (!f) return;
+      try { cover = await coverFrom(f); showCover(); } catch (e) { toast("Cette image n'a pas pu être lue"); }
+    };
+    showCover();
     paint();
     sh.querySelectorAll('[data-kind]').forEach(b => { b.onclick = () => { kind = b.dataset.kind; other.value = ''; paint(); }; });
     other.oninput = () => { kind = other.value.trim() || 'Album'; paint(); };
     setTimeout(() => name.focus(), 60);
-    const ok = () => { if (!name.value.trim()) { toast("Donne un nom à l'album"); return; } close({ name: name.value.trim(), kind }); };
+    const ok = () => { if (!name.value.trim()) { toast("Donne un nom à l'album"); return; } close({ name: name.value.trim(), kind, cover }); };
     name.onkeydown = e => { if (e.key === 'Enter') ok(); };
     sh.querySelector('[data-x]').onclick = () => close(null);
     sh.querySelector('[data-ok]').onclick = ok;
@@ -770,7 +808,7 @@ async function createAlbum() {
   if (!v) return;
   try {
     const list = scopeAlbums();
-    const row = await S.store.addAlbum({ name: v.name, kind: v.kind, group_id: scopeGroup(), position: list.length ? list[list.length - 1].position + 1 : 0 });
+    const row = await S.store.addAlbum({ name: v.name, kind: v.kind, cover: v.cover, group_id: scopeGroup(), position: list.length ? list[list.length - 1].position + 1 : 0 });
     S.albums.push(row);
     ALB_OPEN.add(row.id); saveAlbOpen();
     render();
@@ -811,7 +849,7 @@ async function albumMenu(album) {
   const at = list.indexOf(album);
   const v = await actionSheet(album.name, [
     { label: 'Ajouter des morceaux', value: 'fill' },
-    { label: 'Renommer ou changer le type', value: 'edit', sub: album.kind },
+    { label: 'Nom, type et image', value: 'edit', sub: album.kind },
     at > 0 && { label: 'Monter', value: 'up' },
     at < list.length - 1 && { label: 'Descendre', value: 'down' },
     (isMine(album) || isAdmin(album.group_id)) && { label: "Supprimer l'album", value: 'delete', cls: 'danger', sub: 'Ses morceaux sont gardés' },
@@ -821,9 +859,10 @@ async function albumMenu(album) {
     if (v === 'edit') {
       const e = await albumSheet(album);
       if (!e) return;
+      const before = { name: album.name, kind: album.kind, cover: album.cover };
       Object.assign(album, e);
       render();
-      await S.store.saveAlbum(album);
+      try { await S.store.saveAlbum(album, true); } catch (err) { Object.assign(album, before); render(); throw err; }
     }
     if (v === 'up' || v === 'down') {
       const to = at + (v === 'up' ? -1 : 1);

@@ -272,7 +272,8 @@ class CloudStore {
   /* ----- albums ----- */
   listAlbums() { return this._check(this.sb.from('albums').select('*')); }
   addAlbum(a) { return this._check(this.sb.from('albums').insert(a).select().single()); }
-  saveAlbum(a) { return this._check(this.sb.from('albums').update({ name: a.name, kind: a.kind, position: a.position }).eq('id', a.id)); }
+  // L'image ne part que si on la modifie : inutile de la renvoyer à chaque changement d'ordre.
+  saveAlbum(a, withCover = false) { return this._check(this.sb.from('albums').update({ name: a.name, kind: a.kind, position: a.position, ...(withCover ? { cover: a.cover || '' } : {}) }).eq('id', a.id)); }
   deleteAlbum(id) { return this._check(this.sb.from('albums').delete().eq('id', id)); }
 
   /* ----- discussion ----- */
