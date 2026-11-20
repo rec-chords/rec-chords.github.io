@@ -1848,10 +1848,10 @@ async function manageGroup(gid) {
   const v = await openSheet(`
     <h2>${esc(g.name)}</h2>
     <p class="sub">${plural(list.length, 'membre')} · tu es ${admin ? 'admin' : 'membre'}</p>
-    <label class="label">Code d'invitation</label>
-    <div class="code-row"><span class="code">${esc(g.code)}</span><button class="txt-btn accent" data-copy>copier</button></div>
-    <button class="btn" data-link style="width:100%;margin-top:12px">Envoyer le lien d'invitation</button>
-    <p class="hint">Tes musiciens ouvrent le lien, se connectent ou créent leur compte, et arrivent dans le groupe. Sans le lien : « + groupe », « Rejoindre un groupe », puis le code.</p>
+    <label class="label" for="gLink">Lien d'invitation</label>
+    <div class="code-row link-row"><input class="link" id="gLink" readonly value="${esc(inviteLink(g.code, myMember(gid)?.name || ''))}"><button class="txt-btn accent" data-copy>copier</button></div>
+    ${navigator.share ? '<button class="btn" data-link style="width:100%;margin-top:12px">Envoyer le lien</button>' : ''}
+    <p class="hint">Colle ce lien dans un message. Tes musiciens l'ouvrent, créent leur compte ou se connectent, et arrivent dans le groupe. Si le lien ne passe pas : « + groupe », « Rejoindre un groupe », puis le code <b class="code-mini">${esc(g.code)}</b>.</p>
     <label class="label">Membres</label>
     <div class="choices">${list.map(m => `
       <div class="member"><span class="member-name">${esc(m.name || 'Sans nom')}${m.user_id === me() ? ' (toi)' : ''}</span>
@@ -1865,12 +1865,14 @@ async function manageGroup(gid) {
       : '<button class="txt-btn danger" data-do="leave">quitter le groupe</button>'}</div>`,
   (sh, close) => {
     sh.querySelector('[data-copy]').onclick = async e => {
-      try { await navigator.clipboard.writeText(g.code); e.target.textContent = 'copié'; } catch { toast(`Code : ${g.code}`); }
+      const field = sh.querySelector('#gLink');
+      try { await navigator.clipboard.writeText(field.value); e.target.textContent = 'copié'; }
+      catch { field.focus(); field.select(); toast('Lien sélectionné : copie-le'); }
     };
-    sh.querySelector('[data-link]').onclick = async e => {
-      const url = inviteLink(g.code, myMember(gid)?.name || '');
-      if (navigator.share) { try { await navigator.share({ title: 'Rec.', text: `Rejoins « ${g.name} » sur Rec.`, url }); return; } catch (err) { if (err && err.name === 'AbortError') return; } }
-      try { await navigator.clipboard.writeText(url); e.target.textContent = 'Lien copié'; } catch { toast(url); }
+    sh.querySelector('#gLink').onfocus = e => e.target.select();
+    const send = sh.querySelector('[data-link]');
+    if (send) send.onclick = async () => {
+      try { await navigator.share({ title: 'Rec.', text: `Rejoins « ${g.name} » sur Rec.`, url: sh.querySelector('#gLink').value }); } catch {}
     };
     sh.querySelectorAll('[data-kick]').forEach(b => { b.onclick = () => close({ kick: b.dataset.kick }); });
     sh.querySelectorAll('[data-do]').forEach(b => { b.onclick = () => close({ act: b.dataset.do }); });

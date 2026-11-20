@@ -337,6 +337,9 @@ textarea.field.editor { flex: 1; min-height: 160px; margin-top: 16px; font-size:
 @media (max-width: 520px) { .scopes { padding-left: 18px; padding-right: 18px; gap: 18px; } }
 .code-row { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; border: 1px solid var(--line); background: var(--bg); padding: 14px 16px; }
 .code { font: 500 26px var(--mono); letter-spacing: .14em; }
+.link-row { align-items: center; }
+.link { flex: 1; min-width: 0; border: 0; background: none; padding: 0; font: 14.5px var(--mono); color: var(--text); text-overflow: ellipsis; outline: none; }
+.code-mini { font: 500 1em var(--mono); letter-spacing: .08em; color: var(--text); }
 .code-input { font-family: var(--mono); letter-spacing: .12em; text-transform: uppercase; }
 .member { display: flex; align-items: baseline; gap: 14px; padding: 14px 0; border-top: 1px solid var(--line); }
 .member-name { flex: 1; min-width: 0; font-size: 18px; font-weight: 500; }
