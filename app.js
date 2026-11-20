@@ -61,6 +61,7 @@ const INSTRUMENTS = [
   { id: 'basse', label: 'Basse', icon: ico('<path d="M5 8.5a4.5 4.5 0 119 0C14 14 10 17.5 5 20"/><circle cx="5.6" cy="8.5" r=".9" fill="currentColor"/><circle cx="18.5" cy="6.5" r=".9" fill="currentColor"/><circle cx="18.5" cy="11" r=".9" fill="currentColor"/>') },
   { id: 'clavier', label: 'Clavier', icon: ico('<rect x="3" y="6" width="18" height="12"/><path d="M7.5 6v12M12 6v12M16.5 6v12M9.75 6v6.5M14.25 6v6.5"/>') },
   { id: 'batterie', label: 'Batterie', icon: ico('<ellipse cx="12" cy="9" rx="8" ry="3"/><path d="M4 9v7c0 1.7 3.6 3 8 3s8-1.3 8-3V9M9 3l3 6M15 3l-3 6"/>') },
+  { id: 'groupe', label: 'Groupe', icon: ico('<circle cx="12" cy="8" r="3"/><path d="M6.5 20v-1.5a5.5 5.5 0 0111 0V20"/><circle cx="4.8" cy="10.5" r="2"/><circle cx="19.2" cy="10.5" r="2"/><path d="M1.5 19v-.5A3.5 3.5 0 014.2 15M22.5 19v-.5a3.5 3.5 0 00-2.7-3.5"/>') },
   { id: 'autre', label: 'Autre', icon: ico('<path d="M9 18V5.5l10-2V16"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/>') },
 ];
 const instrumentOf = id => INSTRUMENTS.find(i => i.id === id);
@@ -272,7 +273,8 @@ function blockHtml(idea, list) {
     ${idea.notes ? `<div class="lyrics" data-action="text" data-idea="${idea.id}" title="Modifier le texte">${esc(idea.notes)}</div>` : ''}
     <ol class="takes">${(() => { let n = 0; return list.map(t => takeHtml(t, baseOf(t) ? n - 1 : n++, false)).join(''); })()}</ol>
     <div class="block-foot">
-      <button class="add-take" data-action="record-into" data-idea="${idea.id}">+ enregistrer une suite</button>
+      <button class="add-take" data-action="record-into" data-idea="${idea.id}">${list.length ? '+ enregistrer une suite' : '+ enregistrer'}</button>
+      ${list.length ? '' : `<button class="add-take second" data-action="import-into" data-idea="${idea.id}">+ importer des enregistrements</button>`}
       ${idea.notes ? '' : `<button class="add-take second" data-action="text" data-idea="${idea.id}">+ écrire un texte</button>`}
       ${music || idea.chords ? '' : `<button class="add-take second" data-action="tempo" data-idea="${idea.id}">+ tempo et tonalité</button>`}
       ${idea.group_id ? `<button class="add-take second ${news.talk.length ? 'hot' : ''}" data-action="talk" data-idea="${idea.id}">${talk ? `discussion · ${talk}` : '+ discuter'}${news.talk.length ? ` · ${news.talk.length} ${news.talk.length > 1 ? 'nouveaux' : 'nouveau'}` : ''}</button>` : ''}
@@ -285,12 +287,11 @@ function renderHero() {
   const ideas = visibleIdeas();
   const ids = new Set(ideas.map(i => i.id));
   const takes = S.takes.filter(t => ids.has(t.idea_id)).concat(inboxTakes());
-  hero.hidden = !ideas.length && !takes.length;
-  if (hero.hidden) return;
   const n = ideas.length;
   const t = takes.length;
   const total = takes.reduce((sum, x) => sum + lenOf(x), 0);
-  hero.innerHTML = `<p><b>${n}</b> ${n > 1 ? 'idées' : 'idée'} · <b>${t}</b> ${t > 1 ? 'prises' : 'prise'} · <b>${fmtLong(total)}</b></p>`;
+  hero.innerHTML = (n || t ? `<p><b>${n}</b> ${n > 1 ? 'idées' : 'idée'} · <b>${t}</b> ${t > 1 ? 'prises' : 'prise'} · <b>${fmtLong(total)}</b></p>` : '') +
+    '<button class="txt-btn new-song" id="newSong">+ nouvelle chanson</button>';
 }
 
 // Barre de choix : mes idées, ou celles d'un groupe.
@@ -666,6 +667,18 @@ async function saveIdea(idea) {
   if (!S.ideas.includes(idea)) S.ideas.push(idea);
   await S.store.saveIdea(idea);
 }
+// Une chanson sans enregistrement : on la nomme, on écrit, les prises viendront après.
+async function createSong() {
+  const name = await promptText('Nom de la chanson', '', { placeholder: 'Ex : balade en La mineur' });
+  if (!name) return;
+  const idea = newIdea({ title: name });
+  try { await saveIdea(idea); }
+  catch (e) { S.ideas = S.ideas.filter(x => x !== idea); render(); return fail(e, 'Création impossible'); }
+  render();
+  editText(idea);
+}
+let importDest = null; // idée qui recevra les fichiers choisis (rien = « À trier »)
+function pickImport(ideaId = null) { importDest = ideaId; $('#importInput').click(); }
 async function touchIdea(idea) {
   if (!idea) return;
   idea.updated_at = nowIso();
@@ -1166,6 +1179,7 @@ async function ideaMenu(idea) {
     { label: idea.starred ? 'Retirer des favoris' : 'Ajouter aux favoris', ico: '★', value: 'star' },
     isCloud() && !group && S.groups.length && isMine(idea) && { label: 'Partager avec un groupe', value: 'share', sub: 'Les membres pourront écouter et ajouter' },
     group && isMine(idea) && { label: `Retirer de « ${group.name} »`, value: 'unshare', sub: 'Elle redevient personnelle' },
+    { label: 'Importer des enregistrements', ico: '↑', value: 'import', sub: 'Des fichiers audio de cet appareil' },
     takesOf(idea.id).length && { label: 'Exporter pour Reaper', ico: '↓', value: 'export', sub: 'Un fichier WAV par piste, déjà calés, dans un .zip' },
     { label: 'Fusionner avec une autre idée', ico: '⇄', value: 'merge', sub: 'Déplace toutes ses prises' },
     canDeleteIdea(idea) && { label: "Supprimer l'idée", ico: '✕', value: 'delete', cls: 'danger', sub: group ? 'Chaque prise retourne chez son auteur' : 'Ses prises retournent dans « À trier »' },
@@ -1174,6 +1188,7 @@ async function ideaMenu(idea) {
     if (v === 'rename') return renameIdea(idea);
     if (v === 'tempo') return editTempo(idea);
     if (v === 'export') return exportIdea(idea);
+    if (v === 'import') return pickImport(idea.id);
     if (v === 'star') { idea.starred = !idea.starred; render(); return S.store.saveIdea(idea); }
     if (v === 'color') {
       const cur = ideaColor(idea);
@@ -2420,8 +2435,9 @@ function wireUi() {
   const recTap = makeTapper();
   $('#metroTap').onclick = () => { const t = recTap(); if (t) setRecBpm(t); };
   $('#settingsBtn').onclick = openSettings;
-  $('#importBtn').onclick = () => $('#importInput').click();
-  $('#importInput').onchange = e => { const f = e.target.files; if (f && f.length) importFiles(f); e.target.value = ''; };
+  $('#importBtn').onclick = () => pickImport();
+  $('#importInput').onchange = e => { const f = e.target.files; if (f && f.length) importFiles(f, ideaById(importDest) ? importDest : undefined); e.target.value = ''; };
+  $('#hero').onclick = e => { if (e.target.closest('#newSong')) createSong(); };
   $('#search').oninput = e => { S.filter.q = e.target.value; render(); };
 
   $('#scopes').onclick = e => {
@@ -2467,6 +2483,7 @@ function wireUi() {
     if (a === 'text' && idea) editText(idea);
     if (a === 'idea-menu' && idea) ideaMenu(idea);
     if (a === 'record-into' && idea) startRecording(idea.id);
+    if (a === 'import-into' && idea) pickImport(idea.id);
     if (a === 'play-all' && idea) {
       const ids = takesOf(idea.id).filter(t => !baseOf(t)).map(t => t.id); // les pistes superposées ne se lisent pas à la suite
       if (S.playing && ids.includes(S.playing) && !audio.paused) audio.pause(); else play(ids[0], ids.slice(1));

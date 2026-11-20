@@ -348,7 +348,7 @@ textarea.field.editor { flex: 1; min-height: 160px; margin-top: 16px; font-size:
 .inst { flex: none; width: 18px; height: 18px; align-self: center; color: var(--muted); }
 .inst svg { width: 100%; height: 100%; display: block; }
 .take.is-playing .inst { color: var(--accent); }
-.inst-picker { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; margin-top: 18px; }
+.inst-picker { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; margin-top: 18px; }
 .inst-btn {
   display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 2px 8px;
   border: 1px solid var(--line); background: var(--bg); color: var(--muted);
@@ -390,7 +390,12 @@ body.file-drag .block * { pointer-events: none; }
 [data-inst="basse"]    { --ic: #f5c518; }
 [data-inst="clavier"]  { --ic: #2fd3a6; }
 [data-inst="batterie"] { --ic: #4aa8ff; }
-:root[data-theme="light"] [data-inst="voix"]     { --ic: #d92d3a; }
+[data-inst="groupe"]   { --ic: #b79bff; }
+:root[data-theme="light"] [data-inst="groupe"]   { --ic: #7447d8; }
+.hero { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px; }
+.new-song { color: var(--accent); font: 14.5px var(--mono); padding: 0; }
+@media (max-width: 520px) { .inst-picker { grid-template-columns: repeat(4, 1fr); } }
+:root[data-theme="light"] [data-inst="voix"]    { --ic: #d92d3a; }
 :root[data-theme="light"] [data-inst="guitare"]  { --ic: #c8640a; }
 :root[data-theme="light"] [data-inst="basse"]    { --ic: #a67c00; }
 :root[data-theme="light"] [data-inst="clavier"]  { --ic: #0b8f6c; }
