@@ -349,9 +349,68 @@ function renderHero() {
   const n = ideas.length;
   const t = takes.length;
   const total = takes.reduce((sum, x) => sum + lenOf(x), 0);
-  hero.innerHTML = (n || t ? `<p><b>${n}</b> ${n > 1 ? 'idées' : 'idée'} · <b>${t}</b> ${t > 1 ? 'prises' : 'prise'} · <b>${fmtLong(total)}</b></p>` : '') +
+  const g = isCloud() ? groupById(S.scope) : null;
+  const card = g ? bandHtml(g) : '';
+  hero.innerHTML = card + (n || t ? `<p><b>${n}</b> ${n > 1 ? 'idées' : 'idée'} · <b>${t}</b> ${t > 1 ? 'prises' : 'prise'} · <b>${fmtLong(total)}</b></p>` : '') +
     '<button class="txt-btn new-song" id="newSong">+ nouvelle chanson</button>' +
-    (isCloud() ? '<button class="txt-btn new-song" id="newAlbum">+ nouvel album</button><button class="txt-btn new-song" id="newSet">+ nouvelle setlist</button>' : '');
+    (isCloud() ? '<button class="txt-btn new-song" id="newAlbum">+ nouvel album</button>' : '') +
+    (isCloud() && SETLISTS ? '<button class="txt-btn new-song" id="newSet">+ nouvelle setlist</button>' : '') +
+    (g && !card ? '<button class="txt-btn new-song" id="bandNew">+ présenter le groupe</button>' : '');
+}
+
+// Fiche du groupe : une image et un mémo, en tête de la page du groupe.
+const BAND_OPEN = new Set();
+const linkify = text => esc(text).replace(/https?:\/\/[^\s<]+[^\s<.,;:!?)]/g, u => `<a href="${u}" target="_blank" rel="noopener noreferrer">${u.replace(/^https?:\/\/(www\.)?/, '')}</a>`);
+function bandHtml(g) {
+  const memo = (g.memo || '').trim();
+  const pic = isCover(g.cover);
+  if (!memo && !pic) return '';
+  const long = memo.split('\n').length > 3 || memo.length > 170;
+  const open = long && BAND_OPEN.has(g.id);
+  return `<div class="band ${open ? 'open' : ''}">
+    ${pic ? `<img class="band-cover" src="${g.cover}" alt="">` : ''}
+    <div class="band-text">
+      ${memo ? `<div class="band-memo">${linkify(memo)}</div>` : ''}
+      <p class="band-acts">${long ? `<button class="txt-btn" data-band="fold">${open ? 'replier' : 'tout lire'}</button>` : ''}<button class="txt-btn" data-band="edit">modifier</button></p>
+    </div>
+  </div>`;
+}
+async function editBand(g) {
+  let cover = isCover(g.cover) ? g.cover : '';
+  const v = await openSheet(`<h2>Présenter « ${esc(g.name)} »</h2>
+    <p class="sub">Visible par les membres du groupe. Chacun peut le modifier.</p>
+    <label class="label">Image</label>
+    <div class="cover-row"><span class="cover-box" id="bCover"></span>
+      <button class="txt-btn accent" data-cover>choisir une image</button><button class="txt-btn danger" data-nocover>retirer</button>
+      <input type="file" id="bFile" accept="image/*" hidden></div>
+    <label class="label" for="bMemo">Mémo</label>
+    <textarea class="field band-field" id="bMemo" maxlength="4000" placeholder="Qui vous êtes, votre style, vos liens (Bandcamp, Insta…), les infos utiles à tout le groupe.">${esc(g.memo || '')}</textarea>
+    <div class="row"><button class="btn" data-x>Annuler</button><button class="btn primary" data-ok>Enregistrer</button></div>`,
+  (sh, close) => {
+    const file = sh.querySelector('#bFile');
+    const show = () => {
+      sh.querySelector('#bCover').innerHTML = cover ? `<img src="${cover}" alt="">` : '';
+      sh.querySelector('[data-cover]').textContent = cover ? 'changer' : 'choisir une image';
+      sh.querySelector('[data-nocover]').hidden = !cover;
+    };
+    sh.querySelector('[data-cover]').onclick = sh.querySelector('#bCover').onclick = () => file.click();
+    sh.querySelector('[data-nocover]').onclick = () => { cover = ''; show(); };
+    file.onchange = async () => {
+      const f = file.files[0];
+      file.value = '';
+      if (!f) return;
+      try { cover = await coverFrom(f); show(); } catch (e) { toast("Cette image n'a pas pu être lue"); }
+    };
+    show();
+    sh.querySelector('[data-x]').onclick = () => close(null);
+    sh.querySelector('[data-ok]').onclick = () => close({ memo: sh.querySelector('#bMemo').value.replace(/\r\n?/g, '\n').trim(), cover });
+  });
+  if (!v) return;
+  const before = { memo: g.memo, cover: g.cover };
+  Object.assign(g, v);
+  render();
+  try { await S.store.saveGroupProfile(g.id, v.memo, v.cover); }
+  catch (e) { Object.assign(g, before); render(); fail(e, isNetErr(e) ? 'Il faut du réseau pour modifier la fiche du groupe' : 'Enregistrement impossible'); }
 }
 
 // Barre de choix : mes idées, ou celles d'un groupe.
@@ -384,7 +443,7 @@ function render() {
   let inbox = inboxTakes();
   if (f.q) inbox = inbox.filter(t => norm(t.title || fmtDayTime(t.created_at)).includes(norm(f.q)));
   if (inbox.length && !f.star && !f.tags.size) html += blockHtml(null, inbox);
-  if (isCloud() && !f.q && !f.star && !f.tags.size) html += setlistsHtml();
+  if (SETLISTS && isCloud() && !f.q && !f.star && !f.tags.size) html += setlistsHtml();
   const byAlbum = albumView();
   board.classList.toggle('albums-view', byAlbum);
   if (byAlbum) html += albumsHtml();
@@ -931,6 +990,7 @@ async function moveSong(id, target) {
 }
 
 /* ---------------- Setlists ---------------- */
+const SETLISTS = false; // rangées pour l'instant : remettre true pour les réafficher
 const setById = id => S.setlists.find(x => x.id === id);
 const scopeSets = () => S.setlists.filter(x => (x.group_id || null) === scopeGroup()).sort((a, b) => b.created_at.localeCompare(a.created_at));
 const setSongs = set => (Array.isArray(set.items) ? set.items : []).map(ideaById).filter(i => i && (i.group_id || null) === (set.group_id || null));
@@ -2891,7 +2951,7 @@ async function reload(noSync = false) {
         cloud ? S.store.listGroups() : [], cloud ? S.store.listMembers() : [],
         cloud ? S.store.listComments().catch(e => { if (isNetErr(e)) throw e; return []; }) : [],
         cloud ? S.store.listAlbums().catch(e => { if (isNetErr(e)) throw e; return []; }) : [],
-        cloud ? S.store.listSetlists().catch(e => { if (isNetErr(e)) throw e; return []; }) : [],
+        cloud && SETLISTS ? S.store.listSetlists().catch(e => { if (isNetErr(e)) throw e; return []; }) : [],
       ]);
       S.offline = false;
       if (cloud) saveSnap({ user: me(), ideas, takes, groups, members, comments, albums, setlists });
@@ -3003,7 +3063,12 @@ function wireUi() {
   $('#settingsBtn').onclick = openSettings;
   $('#importBtn').onclick = () => pickImport();
   $('#importInput').onchange = e => { const f = e.target.files; if (f && f.length) importFiles(f, ideaById(importDest) ? importDest : undefined); e.target.value = ''; };
-  $('#hero').onclick = e => { if (e.target.closest('#newSong')) createSong(); if (e.target.closest('#newAlbum')) createAlbum(); if (e.target.closest('#newSet')) createSet(); };
+  $('#hero').onclick = e => { if (e.target.closest('#newSong')) createSong(); if (e.target.closest('#newAlbum')) createAlbum(); if (e.target.closest('#newSet')) createSet();
+    const g = groupById(S.scope);
+    const band = e.target.closest('[data-band]');
+    if (g && (e.target.closest('#bandNew') || band?.dataset.band === 'edit')) editBand(g);
+    if (g && band?.dataset.band === 'fold') { if (!BAND_OPEN.delete(g.id)) BAND_OPEN.add(g.id); render(); }
+  };
   $('#search').oninput = e => { S.filter.q = e.target.value; render(); };
 
   $('#scopes').onclick = e => {
