@@ -357,7 +357,7 @@ function renderHero() {
   const total = takes.reduce((sum, x) => sum + lenOf(x), 0);
   const g = isCloud() ? groupById(S.scope) : null;
   const card = g ? bandHtml(g) : '';
-  hero.innerHTML = card + (n || t ? `<p><b>${n}</b> ${n > 1 ? 'idées' : 'idée'} · <b>${t}</b> ${t > 1 ? 'prises' : 'prise'} · <b>${fmtLong(total)}</b></p>` : '') +
+  hero.innerHTML = card + (card ? '<p class="zone">Les morceaux</p>' : '') + (n || t ? `<p><b>${n}</b> ${n > 1 ? 'idées' : 'idée'} · <b>${t}</b> ${t > 1 ? 'prises' : 'prise'} · <b>${fmtLong(total)}</b></p>` : '') +
     '<button class="txt-btn new-song" id="newSong">+ nouvelle chanson</button>' +
     (isCloud() ? '<button class="txt-btn new-song" id="newAlbum">+ nouvel album</button>' : '') +
     (isCloud() && SETLISTS ? '<button class="txt-btn new-song" id="newSet">+ nouvelle setlist</button>' : '') +
@@ -382,11 +382,13 @@ function bandHtml(g) {
   const long = memo.split('\n').length > 3 || memo.length > 170 || more;
   const open = long && BAND_OPEN.has(g.id);
   return `<div class="band ${open ? 'open' : ''}">
+    <p class="zone">Le groupe</p>
     <div class="band-top">
       ${pic ? `<img class="band-cover" src="${g.cover}" alt="">` : ''}
       <div class="band-text">
         ${tag ? `<p class="band-tag">${esc(tag)}</p>` : ''}
         ${memo ? `<div class="band-memo">${linkify(memo)}</div>` : ''}
+        ${long ? `<button class="txt-btn band-fold" data-band="fold">${open ? 'replier' : 'lire la suite'}</button>` : ''}
       </div>
     </div>
     ${open && more ? `<div class="band-more">
@@ -394,7 +396,7 @@ function bandHtml(g) {
       ${contact ? `<section><h4>Contact</h4>${p.contact ? `<p><b>${esc(p.contact)}</b></p>` : ''}${p.phone ? `<p>${esc(p.phone)}</p>` : ''}${p.mail ? `<p>${esc(p.mail)}</p>` : ''}</section>` : ''}
       ${p.links ? `<section><h4>Liens</h4><p class="band-links">${linkify(p.links)}</p></section>` : ''}
     </div>` : ''}
-    <p class="band-acts">${long ? `<button class="txt-btn" data-band="fold">${open ? 'replier' : 'tout lire'}</button>` : ''}<button class="txt-btn" data-band="edit">modifier</button><button class="txt-btn accent" data-band="rider">fiche technique</button></p>
+    <p class="band-acts"><button class="txt-btn" data-band="edit">modifier la fiche du groupe</button><button class="txt-btn accent" data-band="rider">fiche technique</button></p>
   </div>`;
 }
 async function editBand(g) {

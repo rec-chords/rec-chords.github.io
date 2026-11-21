@@ -705,3 +705,13 @@ body.riding { overflow: hidden; }
   .album.open .disc, .album-head:hover .disc { transform: translateX(13px) rotate(70deg); }
 }
 @media (prefers-reduced-motion: reduce) { .disc { transition: none; } }
+
+/* ---------- En-tête du groupe : deux zones nommées ---------- */
+.hero .zone { flex: 0 0 100%; margin: 0 0 14px; font: 500 12.5px var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--muted); }
+.hero > .zone { margin: 18px 0 4px; }
+.band { padding-bottom: 30px; }
+.band .band-fold { display: block; margin-top: 12px; color: var(--muted); text-decoration-color: var(--dim); }
+.band .band-fold:hover { color: var(--text); }
+.band .band-acts { margin-top: 30px; padding-top: 18px; border-top: 1px solid var(--line); gap: 12px 34px; }
+.band ~ .new-song { margin-top: 12px; }
+.band ~ .new-song + .new-song { margin-left: 10px; }
