@@ -380,22 +380,23 @@ function bandHtml(g) {
   const more = lineup.length || contact || p.links;
   if (!memo && !pic && !tag && !more && !STAGE_KEYS.some(k => p[k])) return '';
   const long = memo.split('\n').length > 3 || memo.length > 170 || more;
-  const open = long && BAND_OPEN.has(g.id);
+  const open = BAND_OPEN.has(g.id);
   return `<div class="band ${open ? 'open' : ''}">
-    <div class="band-top">
+    <div class="band-top" data-band="fold">
       ${pic ? `<img class="band-cover" src="${g.cover}" alt="">` : ''}
       <div class="band-text">
+        <p class="band-kind">Le groupe</p>
         ${tag ? `<p class="band-tag">${esc(tag)}</p>` : ''}
         ${memo ? `<div class="band-memo">${linkify(memo)}</div>` : ''}
-        ${long ? `<button class="txt-btn band-fold" data-band="fold">${open ? 'replier' : 'voir toute la fiche'}</button>` : ''}
       </div>
-      <p class="band-acts"><button class="txt-btn" data-band="edit">modifier la fiche</button><button class="txt-btn accent" data-band="rider">fiche technique</button></p>
+      <span class="txt-btn band-fold">${open ? 'replier' : 'ouvrir'}</span>
     </div>
     ${open && more ? `<div class="band-more">
       ${lineup.length ? `<section><h4>Line-up</h4><ul class="band-lineup">${lineup.map(m => `<li><b>${esc(m.name || '?')}</b><span>${esc(m.inst || '')}</span></li>`).join('')}</ul></section>` : ''}
       ${contact ? `<section><h4>Contact</h4>${p.contact ? `<p><b>${esc(p.contact)}</b></p>` : ''}${p.phone ? `<p>${esc(p.phone)}</p>` : ''}${p.mail ? `<p>${esc(p.mail)}</p>` : ''}</section>` : ''}
       ${p.links ? `<section><h4>Liens</h4><p class="band-links">${linkify(p.links)}</p></section>` : ''}
     </div>` : ''}
+    ${open ? `<p class="band-acts"><button class="txt-btn" data-band="edit">modifier la fiche</button><button class="txt-btn accent" data-band="rider">fiche technique</button></p>` : ''}
   </div>`;
 }
 async function editBand(g) {
@@ -3216,7 +3217,7 @@ function wireUi() {
     const band = e.target.closest('[data-band]');
     if (g && (e.target.closest('#bandNew') || band?.dataset.band === 'edit')) editBand(g);
     if (g && band?.dataset.band === 'rider') openRider(g);
-    if (g && band?.dataset.band === 'fold') { if (!BAND_OPEN.delete(g.id)) BAND_OPEN.add(g.id); render(); }
+    if (g && band?.dataset.band === 'fold' && !e.target.closest('a')) { if (!BAND_OPEN.delete(g.id)) BAND_OPEN.add(g.id); render(); }
   };
   $('#search').oninput = e => { S.filter.q = e.target.value; render(); };
 

@@ -735,3 +735,10 @@ body.riding { overflow: hidden; }
 .album.open .disc, .album-head:hover .disc { transform: translateX(8px) rotate(70deg); }
 @media (max-width: 520px) { .disc { left: 40px; } .album.open .disc, .album-head:hover .disc { transform: translateX(6px) rotate(70deg); } }
 .hero:has(.band) { max-width: 820px; box-sizing: border-box; }
+
+/* ---------- Fiche du groupe : une seule entrée, comme un album ---------- */
+.band .band-top { flex-wrap: nowrap; align-items: flex-start; cursor: pointer; }
+.band .band-kind { margin: 0 0 8px; font: 500 12.5px var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--muted); }
+.band .band-tag { margin: 0 0 10px; }
+.band .band-fold { flex: none; display: inline; margin: 0 0 0 auto; font-size: 14.5px; color: var(--text); }
+.band .band-acts { margin: 26px 0 0; padding: 18px 0 0; border-top: 1px solid var(--line); gap: 10px 30px; }
