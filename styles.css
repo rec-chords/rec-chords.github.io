@@ -901,3 +901,11 @@ body.dragging { -webkit-user-select: none; user-select: none; }
 .block.in-album .grip { display: none; }
 .block-head::before { display: none; }
 .block:has(.take.is-playing) .grip { background-image: radial-gradient(circle, var(--accent) 1.4px, transparent 1.8px); filter: drop-shadow(0 0 4px var(--accent)); }
+
+/* La poignée est un médiator */
+.grip { width: 18px; height: 20px; margin: 6px -5px 0 -2px; background: none; color: var(--dim); transition: color .12s, transform .12s; }
+.grip svg { display: block; width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linejoin: round; }
+.block-head:hover .grip, .grip:active { filter: none; color: var(--text); }
+.grip:active { transform: rotate(-12deg) scale(1.08); }
+.block:has(.take.is-playing) .grip { background-image: none; color: var(--accent); filter: drop-shadow(0 0 5px var(--accent)); }
+.block:has(.take.is-playing) .grip svg { fill: currentColor; }
