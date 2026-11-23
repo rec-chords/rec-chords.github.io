@@ -756,3 +756,8 @@ body.riding { overflow: hidden; }
 .take.ver-old { margin-left: 40px; padding-left: 14px; border-top-style: dashed; border-left: 1px solid var(--line); }
 .take.ver-old .take-title { color: var(--muted); }
 .take.ver-old + .take.layer { margin-left: 70px; }
+.ver-plus { flex: none; display: grid; place-items: center; width: 30px; height: 30px; margin-left: 10px; padding: 0; border: 1px solid var(--line); background: none; color: var(--accent); cursor: pointer; }
+.ver-plus svg { width: 19px; height: 19px; display: block; }
+.ver-plus:hover { border-color: var(--accent); }
+.take-side { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.take-side .ver-plus { width: 28px; height: 28px; margin: 0; }

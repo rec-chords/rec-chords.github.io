@@ -249,6 +249,7 @@ function takeHtml(t, index, inInbox) {
   const path = inInbox || layer ? [t] : pathOf(t);
   const ver = !inInbox && !layer && stackOf(path[0]).length > 1;
   const top = ver && !superseded(t);
+  const plus = !inInbox && !layer && !ver && !!ideaById(t.idea_id);
   const title = t.title || (inInbox ? `Vocal du ${fmtDayTime(t.created_at)}` : ver ? `Version ${path.length}` : layer ? `Piste ${instrumentOf(t.instrument)?.label.toLowerCase() || 'ajoutée'}` : `Prise ${index + 1}`);
   const shared = !inInbox && ideaById(t.idea_id)?.group_id;
   const who = shared && t.author ? `${t.author} · ` : '';
@@ -270,7 +271,8 @@ function takeHtml(t, index, inInbox) {
         <button class="txt-btn" data-action="loop-b" data-id="${t.id}">fin</button>
       </div>
     </div>
-    <button class="mini-btn" data-action="take-menu" data-id="${t.id}" aria-label="Options de la prise">${ICONS.more}</button>
+    ${plus ? `<span class="take-side"><button class="ver-plus" data-action="ver-add" data-id="${t.id}" title="Poser une version par-dessus" aria-label="Poser une version par-dessus"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4.5h10.5a1 1 0 011 1V16"/><rect x="4.5" y="8" width="11.5" height="11.5" rx="1"/><path d="M10.25 11v5.5M7.5 13.75H13"/></svg></button><button class="mini-btn" data-action="take-menu" data-id="${t.id}" aria-label="Options de la prise">${ICONS.more}</button></span>`
+      : `<button class="mini-btn" data-action="take-menu" data-id="${t.id}" aria-label="Options de la prise">${ICONS.more}</button>`}
   </li>`;
 }
 
