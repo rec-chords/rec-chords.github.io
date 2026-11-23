@@ -844,7 +844,13 @@ audio.addEventListener('timeupdate', () => {
   const a = cutIn(take), b = cutOut(take, total);
   const pct = Math.max(0, Math.min(100, (audio.currentTime - a) / ((b - a) || 1) * 100));
   document.querySelectorAll(`.take[data-id="${S.playing}"] .w-fill`).forEach(f => { f.style.clipPath = `inset(0 ${100 - pct}% 0 0)`; });
+  $('#deckTime').textContent = deckClock(Math.max(0, audio.currentTime - a));
+  const pk = Array.isArray(take.peaks) ? take.peaks : [];
+  setMeter($('#deckMeter'), pk.length ? (pk[Math.min(pk.length - 1, Math.floor(audio.currentTime / total * pk.length))] || 0) / 100 : 0);
 });
+const deckIdle = () => { if (audio.paused) { setMeter($('#deckMeter'), 0); if (!S.playing) $('#deckTime').textContent = '0:00'; } };
+audio.addEventListener('pause', deckIdle);
+audio.addEventListener('ended', () => setTimeout(deckIdle, 0));
 function onTakeEnd() {
   const take = takeById(S.playing);
   if (take && LOOP.on && LOOP.id === S.playing) { // en boucle : on repart du début du passage
@@ -1820,10 +1826,18 @@ async function startRecording(targetIdeaId = null, overId = null) {
   tickRecording();
 }
 
+// Le magnéto du bas : un compteur et un niveau à six voyants.
+const deckClock = sec => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, '0')}`;
+function setMeter(el, level) {
+  if (!el) return;
+  const n = Math.round(Math.max(0, Math.min(1, level)) * el.children.length);
+  [...el.children].forEach((seg, i) => seg.classList.toggle('on', i < n));
+}
 function tickRecording() {
   if (!REC.recorder) return;
   const sec = (Date.now() - REC.start) / 1000;
   $('#recTime').textContent = fmtDur(Math.floor(sec));
+  $('#recDeckTime').textContent = deckClock(sec);
   const cv = $('#levels');
   const g = cv.getContext('2d');
   let level = 0;
@@ -1834,6 +1848,7 @@ function tickRecording() {
     for (const v of buf) { const x = (v - 128) / 128; sum += x * x; }
     level = Math.min(1, Math.sqrt(sum / buf.length) * 4);
   }
+  setMeter($('#recMeter'), level);
   REC.peak = Math.max(REC.peak || 0, level);
   if (!REC.lastTick || Date.now() - REC.lastTick >= 50) { REC.levels.push(REC.peak); REC.peak = 0; REC.lastTick = Date.now(); }
   const n = 180;

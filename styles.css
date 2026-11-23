@@ -807,3 +807,32 @@ body.riding { overflow: hidden; }
 .amp-badge { margin: 9px 2px 0; text-align: right; font: italic 700 15px var(--sans); letter-spacing: -.02em; color: var(--dim); }
 @media (max-width: 400px) { .amp-knobs i:nth-child(3) { display: none; } }
 @media (max-width: 480px) { .amp .pad { min-height: 80px; padding: 10px 11px; } .amp .pad svg { margin-bottom: 9px; } .amp-head { padding: 11px 14px 12px; } .amp-grille { padding: 9px 9px 7px; } .amp-badge { margin-top: 6px; } }
+
+/* ---------- DA studio : la toile grillagée, les morceaux en modules, le magnéto ---------- */
+body { background-image: repeating-linear-gradient(45deg, color-mix(in srgb, var(--text) 5%, transparent) 0 1px, transparent 1px 6px), repeating-linear-gradient(-45deg, color-mix(in srgb, var(--text) 5%, transparent) 0 1px, transparent 1px 6px); }
+.topbar { background: var(--bg); }
+.block { margin: 0 0 16px; padding: 16px 18px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); }
+.block::before { display: none; }
+.block.in-album { margin: 0 0 12px 36px; padding: 10px 16px 6px; }
+.block.inbox { border: 1px dashed var(--muted); }
+.block.new-zone { background: none; }
+.block.drop-hover { border-color: var(--accent); background: var(--soft); }
+.block-head::before { content: ""; flex: none; align-self: flex-start; width: 8px; height: 8px; margin: 12px -4px 0 0; border-radius: 50%; background: var(--line); transition: background .15s, box-shadow .15s; }
+.block:has(.take.is-playing) .block-head::before { background: var(--accent); box-shadow: 0 0 9px 1px var(--accent); }
+.block.in-album .block-head::before, .block.inbox .block-head::before { display: none; }
+.rec-btn, .stop-bar { display: grid; grid-template-columns: 1fr auto 1fr; gap: 14px; padding-left: 20px; padding-right: 20px; background: var(--soft); border-top-color: var(--line); }
+.rec-btn:hover, .stop-bar:hover { background: var(--soft); }
+.deck-time { justify-self: start; min-width: 62px; padding: 3px 8px 2px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); font: 400 19px var(--mono); letter-spacing: .02em; text-align: center; color: var(--text); }
+.deck-main { display: flex; align-items: center; gap: 12px; }
+.deck-ring { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 50%; border: 2px solid var(--line); background: var(--bg); transition: border-color .12s, transform .08s; }
+.deck-ring .rec-dot { width: 26px; height: 26px; }
+.deck-ring .stop-sq { width: 16px; height: 16px; border-radius: 2px; }
+.rec-btn:hover .deck-ring, .stop-bar:hover .deck-ring { border-color: var(--accent); }
+.rec-btn:active .deck-ring, .stop-bar:active .deck-ring { transform: scale(.94); }
+.deck-main .kbd { position: static; }
+.deck-meter { justify-self: end; display: flex; align-items: flex-end; gap: 3px; height: 26px; }
+.deck-meter i { width: 5px; height: 100%; background: var(--line); }
+.deck-meter i:nth-child(1) { height: 30%; } .deck-meter i:nth-child(2) { height: 44%; } .deck-meter i:nth-child(3) { height: 58%; }
+.deck-meter i:nth-child(4) { height: 72%; } .deck-meter i:nth-child(5) { height: 86%; }
+.deck-meter i.on { background: var(--accent); }
+.deck-meter i.on:last-child { background: var(--red); }
