@@ -249,7 +249,7 @@ function takeHtml(t, index, inInbox) {
   const path = inInbox || layer ? [t] : pathOf(t);
   const ver = !inInbox && !layer && stackOf(path[0]).length > 1;
   const top = ver && !superseded(t);
-  const plus = !inInbox && !layer && !ver && !!ideaById(t.idea_id);
+  const plus = !inInbox && !layer && (!ver || top) && !!ideaById(t.idea_id);
   const title = t.title || (inInbox ? `Vocal du ${fmtDayTime(t.created_at)}` : ver ? `Version ${path.length}` : layer ? `Piste ${instrumentOf(t.instrument)?.label.toLowerCase() || 'ajoutée'}` : `Prise ${index + 1}`);
   const shared = !inInbox && ideaById(t.idea_id)?.group_id;
   const who = shared && t.author ? `${t.author} · ` : '';
@@ -261,10 +261,9 @@ function takeHtml(t, index, inInbox) {
     <div class="take-main">
       <div class="take-line">${inst ? `<span class="inst" data-inst="${inst.id}" title="${esc(inst.label)}">${inst.icon}</span>` : ''}<span class="take-title">${esc(title)}</span>${isNew ? '<span class="news">nouveau</span>' : ''}<span class="take-meta">${esc(meta)}</span></div>
       ${t.notes ? `<div class="take-note">${esc(t.notes)}</div>` : ''}
-      ${ver ? `<div class="ver-strip">${path.map((v, i) => `<span class="${i === path.length - 1 && i ? 'new' : ''}">${i === path.length - 1 && i ? '+ ' : ''}${esc(instrumentOf(v.instrument)?.label.toLowerCase() || 'piste')}</span>`).join('')}${top ? '<b>actuelle</b>' : ''}</div>` : ''}
+      ${ver ? `<div class="ver-strip">${(top ? path : path.slice(-1)).map((v, i, l) => { const mine = v === t && path.length > 1; return `<span class="${mine ? 'new' : ''}">${mine ? '+ ' : ''}${esc(instrumentOf(v.instrument)?.label.toLowerCase() || 'piste')}</span>`; }).join('<i>·</i>')}</div>` : ''}
       <div class="wave" data-action="seek" data-id="${t.id}">${waveSvg(t, 'w-base')}${waveSvg(t, 'w-fill')}<i class="w-loop"></i></div>
       ${layers.length ? `<button class="txt-btn mix-btn" data-action="mix" data-id="${t.id}">écouter ensemble · ${layers.length + 1} pistes</button>` : ''}
-      ${top ? `<div class="ver-acts"><button class="txt-btn" data-action="ver-download" data-id="${t.id}">télécharger</button><button class="txt-btn accent" data-action="ver-add" data-id="${t.id}">+ poser par-dessus</button></div>` : ''}
       <div class="loopbar">
         <button class="txt-btn" data-action="loop" data-id="${t.id}">boucle</button>
         <button class="txt-btn" data-action="loop-a" data-id="${t.id}">début</button>
@@ -289,7 +288,7 @@ function takesHtml(list) {
     const olds = stack.filter(superseded);
     stack.filter(v => !superseded(v)).forEach(v => one(v, idx));
     const open = VER_OPEN.has(t.id);
-    out.push(`<li class="ver-fold"><button class="txt-btn" data-action="ver-fold" data-id="${t.id}">${open ? 'masquer' : 'voir'} ${olds.length > 1 ? `les ${olds.length} versions précédentes` : 'la version précédente'}</button></li>`);
+    out.push(`<li class="ver-fold"><button class="txt-btn" data-action="ver-fold" data-id="${t.id}">${olds.length > 1 ? `${olds.length} versions précédentes` : '1 version précédente'} · ${open ? 'masquer' : 'voir'}</button></li>`);
     if (open) olds.forEach(v => one(v, idx));
   }
   return out.join('');
