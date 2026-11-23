@@ -907,7 +907,40 @@ function confirmBox(title, text, okLabel = 'Confirmer') {
   });
 }
 
+// Icônes des menus d'actions, par action.
+const ACT = {
+  rename: '<path d="M4 20l1-4L16.5 4.5a1.4 1.4 0 012 0l1 1a1.4 1.4 0 010 2L8 19z"/>',
+  edit: '<path d="M4 20l1-4L16.5 4.5a1.4 1.4 0 012 0l1 1a1.4 1.4 0 010 2L8 19z"/>',
+  instrument: '<path d="M9 18V5.5l10-2V16"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/>',
+  note: '<path d="M5 6h14M5 11h14M5 16h9"/>',
+  notes: '<path d="M5 6h14M5 11h14M5 16h9"/>',
+  over: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="3.5" fill="currentColor"/>',
+  version: '<path d="M8 4.5h10.5a1 1 0 011 1V16"/><rect x="4.5" y="8" width="11.5" height="11.5" rx="1"/><path d="M10.25 11v5.5M7.5 13.75H13"/>',
+  nudge: '<path d="M4 12h16M8 8l-4 4 4 4M16 8l4 4-4 4"/>',
+  cut: '<circle cx="6" cy="7" r="2.5"/><circle cx="6" cy="17" r="2.5"/><path d="M8 8.5L20 17M8 15.5L20 7"/>',
+  move: '<path d="M5 5v8a3 3 0 003 3h11M15 12l4 4-4 4"/>',
+  download: '<path d="M12 4v11M7 11l5 5 5-5M5 20h14"/>',
+  export: '<path d="M12 4v11M7 11l5 5 5-5M5 20h14"/>',
+  import: '<path d="M12 16V5M7 9l5-5 5 5M5 20h14"/>',
+  delete: '<path d="M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13"/>',
+  tags: '<path d="M9 4L7 20M17 4l-2 16M4.5 9h16M3.5 15h16"/>',
+  tempo: '<path d="M9 3h6l4 18H5zM12 15l5-9"/>',
+  star: '<path d="M12 4l2.5 5.2 5.5.8-4 4 1 5.6-5-2.8-5 2.8 1-5.6-4-4 5.5-.8z"/>',
+  share: '<circle cx="12" cy="8" r="3"/><path d="M6.5 20v-1.5a5.5 5.5 0 0111 0V20"/><circle cx="4.8" cy="10.5" r="2"/><circle cx="19.2" cy="10.5" r="2"/>',
+  unshare: '<circle cx="12" cy="8" r="3"/><path d="M6.5 20v-1.5a5.5 5.5 0 0111 0V20"/>',
+  album: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="2.5"/>',
+  merge: '<path d="M5 5c5 0 7 3 7 7v8M19 5c-5 0-7 3-7 7M9 17l3 3 3-3"/>',
+  fill: '<path d="M12 5v14M5 12h14"/>',
+  up: '<path d="M12 19V5M6 11l6-6 6 6"/>',
+  down: '<path d="M12 5v14M6 13l6 6 6-6"/>',
+};
+// Un titre donné sous la forme { title, kind } affiche les actions en pads, comme sur une boîte à rythmes.
 function actionSheet(title, items) {
+  if (title && typeof title === 'object') {
+    return openSheet(`<p class="pads-kind">${esc(title.kind || '')}</p><h2>${esc(title.title)}</h2><div class="pads">${items.map((it, i) =>
+      `<button class="pad ${it.cls || ''}" data-i="${i}">${ico(ACT[it.value] || '<circle cx="12" cy="12" r="2"/>')}<b>${esc(it.label)}</b>${it.sub ? `<small>${esc(it.sub)}</small>` : ''}</button>`).join('')}</div>`,
+    (sh, close) => sh.querySelectorAll('[data-i]').forEach(b => { b.onclick = () => close(items[+b.dataset.i].value); }));
+  }
   return openSheet(`<h2>${esc(title)}</h2><div class="choices">${items.map((it, i) =>
     `<button class="choice ${it.cls || ''}" data-i="${i}"><span class="ico">${it.ico || '•'}</span><span>${esc(it.label)}${it.sub ? `<small>${esc(it.sub)}</small>` : ''}</span></button>`).join('')}</div>`,
   (sh, close) => sh.querySelectorAll('[data-i]').forEach(b => { b.onclick = () => close(items[+b.dataset.i].value); }));
@@ -1087,12 +1120,12 @@ async function fillAlbum(album) {
 async function albumMenu(album) {
   const list = scopeAlbums();
   const at = list.indexOf(album);
-  const v = await actionSheet(album.name, [
-    { label: 'Ajouter des morceaux', value: 'fill' },
-    { label: 'Nom, type et image', value: 'edit', sub: album.kind },
+  const v = await actionSheet({ title: album.name, kind: album.kind || 'Album' }, [
+    { label: 'Ajouter', value: 'fill', sub: 'Des morceaux' },
+    { label: 'Modifier', value: 'edit', sub: 'Nom, type et image' },
     at > 0 && { label: 'Monter', value: 'up' },
     at < list.length - 1 && { label: 'Descendre', value: 'down' },
-    (isMine(album) || isAdmin(album.group_id)) && { label: "Supprimer l'album", value: 'delete', cls: 'danger', sub: 'Ses morceaux sont gardés' },
+    (isMine(album) || isAdmin(album.group_id)) && { label: 'Supprimer', value: 'delete', cls: 'danger', sub: 'Ses morceaux sont gardés' },
   ].filter(Boolean));
   try {
     if (v === 'fill') return fillAlbum(album);
@@ -1980,19 +2013,19 @@ async function openSaveSheet(rec, target) {
 /* ---------------- Menus ---------------- */
 async function ideaMenu(idea) {
   const group = groupById(idea.group_id);
-  const v = await actionSheet(ideaTitle(idea), [
+  const v = await actionSheet({ title: ideaTitle(idea), kind: 'Morceau' }, [
     { label: 'Renommer', ico: '✎', value: 'rename' },
     { label: 'Étiquettes', ico: '#', value: 'tags', sub: (idea.tags || []).join(', ') },
-    { label: idea.notes ? 'Modifier le texte' : 'Écrire un texte', ico: '¶', value: 'notes', sub: 'Paroles, accords, notes' },
+    { label: 'Texte', value: 'notes', sub: 'Paroles, accords, notes' },
     { label: 'Tempo et tonalité', ico: '♩', value: 'tempo', sub: [idea.bpm ? `${idea.bpm} bpm` : '', idea.tona || '', (idea.chords || '').split('\n')[0].trim()].filter(Boolean).join(' · ') },
-    { label: idea.starred ? 'Retirer des favoris' : 'Ajouter aux favoris', ico: '★', value: 'star' },
-    isCloud() && !group && S.groups.length && isMine(idea) && { label: 'Partager avec un groupe', value: 'share', sub: 'Les membres pourront écouter et ajouter' },
-    group && isMine(idea) && { label: `Retirer de « ${group.name} »`, value: 'unshare', sub: 'Elle redevient personnelle' },
-    isCloud() && { label: 'Ranger dans un album', value: 'album', sub: albumOf(idea)?.name || '' },
-    { label: 'Importer des enregistrements', ico: '↑', value: 'import', sub: 'Des fichiers audio de cet appareil' },
-    takesOf(idea.id).length && { label: 'Exporter pour Reaper', ico: '↓', value: 'export', sub: 'Un fichier WAV par piste, déjà calés, dans un .zip' },
-    { label: 'Fusionner avec une autre idée', ico: '⇄', value: 'merge', sub: 'Déplace toutes ses prises' },
-    canDeleteIdea(idea) && { label: "Supprimer l'idée", ico: '✕', value: 'delete', cls: 'danger', sub: group ? 'Chaque prise retourne chez son auteur' : 'Ses prises retournent dans « À trier »' },
+    { label: 'Favori', value: 'star', sub: idea.starred ? 'Retirer' : 'Ajouter' },
+    isCloud() && !group && S.groups.length && isMine(idea) && { label: 'Partager', value: 'share', sub: 'Avec un groupe' },
+    group && isMine(idea) && { label: 'Reprendre', value: 'unshare', sub: `La retirer de « ${group.name} »` },
+    isCloud() && { label: 'Album', value: 'album', sub: albumOf(idea)?.name || 'Ranger dans un album' },
+    { label: 'Importer', value: 'import', sub: 'Des fichiers audio' },
+    takesOf(idea.id).length && { label: 'Exporter', value: 'export', sub: 'Pour Reaper : un WAV par piste' },
+    { label: 'Fusionner', value: 'merge', sub: 'Avec un autre morceau' },
+    canDeleteIdea(idea) && { label: 'Supprimer', value: 'delete', cls: 'danger', sub: group ? 'Les prises sont rendues' : 'Les prises vont dans À trier' },
   ].filter(Boolean));
   try {
     if (v === 'rename') return renameIdea(idea);
@@ -2154,15 +2187,15 @@ async function nudgeTake(take) {
 }
 
 async function takeMenu(take) {
-  const v = await actionSheet(take.title || 'Prise', [
+  const v = await actionSheet({ title: take.title || (pathOf(take).length > 1 || superseded(take) ? `Version ${pathOf(take).length}` : 'Prise'), kind: baseOf(take) ? 'Piste' : 'Prise' }, [
     { label: 'Renommer', ico: '✎', value: 'rename' },
     { label: 'Instrument', value: 'instrument', sub: instrumentOf(take.instrument)?.label || 'Non précisé' },
     { label: 'Note', ico: '¶', value: 'note' },
-    take.idea_id && ideaById(take.idea_id) && { label: 'Enregistrer par-dessus', ico: '+', value: 'over', sub: 'Tu joues en écoutant cette prise, au casque' },
-    take.idea_id && ideaById(take.idea_id) && !baseOf(take) && { label: 'Poser une version par-dessus', ico: '⇡', value: 'version', sub: 'Tu as ajouté un instrument dans ton logiciel : envoie le nouveau mixage' },
-    baseOf(take) && { label: 'Recaler la piste', ico: '↔', value: 'nudge', sub: `Décalage : ${fmtMs((take.offset_ms || 0) - Math.round(cutIn(baseOf(take)) * 1000))}` },
-    { label: 'Couper le début et la fin', ico: '✂', value: 'cut', sub: isCut(take) ? `Garde ${fmtDur(lenOf(take))} sur ${fmtDur(take.duration)}` : '' },
-    { label: 'Déplacer vers…', ico: '↳', value: 'move' },
+    take.idea_id && ideaById(take.idea_id) && { label: 'Jouer par-dessus', value: 'over', sub: 'En écoutant, au casque' },
+    take.idea_id && ideaById(take.idea_id) && !baseOf(take) && { label: 'Nouvelle version', value: 'version', sub: 'Un mixage avec un instrument en plus' },
+    baseOf(take) && { label: 'Recaler', value: 'nudge', sub: `${fmtMs((take.offset_ms || 0) - Math.round(cutIn(baseOf(take)) * 1000))}` },
+    { label: 'Couper', value: 'cut', sub: isCut(take) ? `Garde ${fmtDur(lenOf(take))} sur ${fmtDur(take.duration)}` : 'Le début et la fin' },
+    { label: 'Déplacer', value: 'move', sub: 'Vers un autre morceau' },
     { label: 'Télécharger', ico: '↓', value: 'download' },
     canDeleteTake(take) && { label: 'Supprimer', ico: '✕', value: 'delete', cls: 'danger' },
   ].filter(Boolean));

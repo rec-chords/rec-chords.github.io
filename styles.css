@@ -771,3 +771,18 @@ body.riding { overflow: hidden; }
 .take.ver-old { margin-left: 40px; padding: 8px 0; border: 0; opacity: .8; }
 .take.ver-old .take-title { font-size: 15px; }
 .take.ver-old + .ver-fold, .ver-fold + .take.ver-old { margin-top: -4px; }
+
+/* ---------- Menus d'actions : des pads, comme sur une boîte à rythmes ---------- */
+.pads-kind { margin: 0 0 6px; font: 500 12.5px var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--accent); }
+.pads-kind + h2 { overflow-wrap: anywhere; }
+.pads { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 20px; }
+.pad { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; min-height: 96px; padding: 12px 12px 11px; border: 1px solid var(--line); background: var(--bg); color: var(--text); text-align: left; cursor: pointer; transition: border-color .12s, background .12s, transform .08s; }
+.pad svg { width: 22px; height: 22px; margin-bottom: 14px; color: var(--accent); }
+.pad b { font: 600 15.5px/1.2 var(--sans); letter-spacing: -.01em; }
+.pad small { font: 12px/1.35 var(--mono); color: var(--muted); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+.pad:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--bg)); }
+.pad:active { transform: scale(.97); background: color-mix(in srgb, var(--accent) 26%, var(--bg)); }
+.pad.danger svg, .pad.danger b { color: var(--red); }
+.pad.danger:hover { border-color: var(--red); background: color-mix(in srgb, var(--red) 12%, var(--bg)); }
+@media (max-width: 480px) { .pads { grid-template-columns: repeat(2, minmax(0, 1fr)); } .pad { min-height: 88px; } }
+@media (prefers-reduced-motion: reduce) { .pad { transition: none; } }
