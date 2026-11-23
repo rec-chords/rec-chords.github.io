@@ -92,6 +92,13 @@ const inboxTakes = () => (S.scope !== 'me' ? [] : S.takes.filter(t => (!t.idea_i
 // Une piste « par-dessus » est une prise enregistrée en écoutant une autre prise de la même idée.
 const baseOf = t => { const b = t && t.layer_of ? takeById(t.layer_of) : null; return b && b.idea_id && b.idea_id === t.idea_id && !b.layer_of ? b : null; };
 const layersOf = b => S.takes.filter(t => t.layer_of === b.id && baseOf(t) === b).sort((x, y) => x.position - y.position || x.created_at.localeCompare(y.created_at));
+// Une « version » est un nouveau mixage qui reprend une prise et lui ajoute un instrument.
+const prevOf = t => { const p = t && t.version_of && !t.layer_of ? takeById(t.version_of) : null; return p && p !== t && p.idea_id && p.idea_id === t.idea_id && !p.layer_of ? p : null; };
+const pathOf = t => { const path = [t]; while (prevOf(path[0]) && path.length < 60 && !path.includes(prevOf(path[0]))) path.unshift(prevOf(path[0])); return path; };
+const stackOf = root => S.takes.filter(t => t.idea_id === root.idea_id && !t.layer_of && pathOf(t)[0] === root)
+  .sort((x, y) => pathOf(y).length - pathOf(x).length || y.created_at.localeCompare(x.created_at));
+const superseded = t => S.takes.some(c => prevOf(c) === t);
+const VER_OPEN = new Set(); // piles dont les versions précédentes sont dépliées
 const fmtMs = ms => `${ms > 0 ? '+' : ms < 0 ? '−' : ''}${Math.abs(Math.round(ms))} ms`;
 // Coupe : rien n'est effacé, on retient où la prise commence et finit (en ms dans le fichier).
 const cutIn = t => Math.max(0, (t.trim_a || 0) / 1000);
@@ -239,19 +246,24 @@ function renderFilters() {
 function takeHtml(t, index, inInbox) {
   const layer = !inInbox && baseOf(t);
   const layers = !inInbox && !layer ? layersOf(t) : [];
-  const title = t.title || (inInbox ? `Vocal du ${fmtDayTime(t.created_at)}` : layer ? `Piste ${instrumentOf(t.instrument)?.label.toLowerCase() || 'ajoutée'}` : `Prise ${index + 1}`);
+  const path = inInbox || layer ? [t] : pathOf(t);
+  const ver = !inInbox && !layer && stackOf(path[0]).length > 1;
+  const top = ver && !superseded(t);
+  const title = t.title || (inInbox ? `Vocal du ${fmtDayTime(t.created_at)}` : ver ? `Version ${path.length}` : layer ? `Piste ${instrumentOf(t.instrument)?.label.toLowerCase() || 'ajoutée'}` : `Prise ${index + 1}`);
   const shared = !inInbox && ideaById(t.idea_id)?.group_id;
   const who = shared && t.author ? `${t.author} · ` : '';
   const meta = (inInbox ? fmtDur(lenOf(t)) : `${who}${fmtDay(t.created_at)} · ${fmtDur(lenOf(t))}`) + (waiting(t.id) ? " · en attente d'envoi" : '');
   const inst = instrumentOf(t.instrument);
   const isNew = shared && newsOf(ideaById(t.idea_id)).takes.includes(t);
-  return `<li class="take ${layer ? 'layer' : ''}" data-id="${t.id}">
-    <button class="play" data-action="play" data-id="${t.id}" aria-label="Écouter"><span class="num">${layer ? '+' : String(index + 1).padStart(2, '0')}</span><span class="pi">${ICONS.play}</span></button>
+  return `<li class="take ${layer ? 'layer' : ''} ${ver ? (top ? 'ver ver-top' : 'ver ver-old') : ''}" data-id="${t.id}">
+    <button class="play" data-action="play" data-id="${t.id}" aria-label="Écouter"><span class="num">${layer ? '+' : ver ? 'v' + path.length : String(index + 1).padStart(2, '0')}</span><span class="pi">${ICONS.play}</span></button>
     <div class="take-main">
       <div class="take-line">${inst ? `<span class="inst" data-inst="${inst.id}" title="${esc(inst.label)}">${inst.icon}</span>` : ''}<span class="take-title">${esc(title)}</span>${isNew ? '<span class="news">nouveau</span>' : ''}<span class="take-meta">${esc(meta)}</span></div>
       ${t.notes ? `<div class="take-note">${esc(t.notes)}</div>` : ''}
+      ${ver ? `<div class="ver-strip">${path.map((v, i) => `<span class="${i === path.length - 1 && i ? 'new' : ''}">${i === path.length - 1 && i ? '+ ' : ''}${esc(instrumentOf(v.instrument)?.label.toLowerCase() || 'piste')}</span>`).join('')}${top ? '<b>actuelle</b>' : ''}</div>` : ''}
       <div class="wave" data-action="seek" data-id="${t.id}">${waveSvg(t, 'w-base')}${waveSvg(t, 'w-fill')}<i class="w-loop"></i></div>
       ${layers.length ? `<button class="txt-btn mix-btn" data-action="mix" data-id="${t.id}">écouter ensemble · ${layers.length + 1} pistes</button>` : ''}
+      ${top ? `<div class="ver-acts"><button class="txt-btn" data-action="ver-download" data-id="${t.id}">télécharger</button><button class="txt-btn accent" data-action="ver-add" data-id="${t.id}">+ poser par-dessus</button></div>` : ''}
       <div class="loopbar">
         <button class="txt-btn" data-action="loop" data-id="${t.id}">boucle</button>
         <button class="txt-btn" data-action="loop-a" data-id="${t.id}">début</button>
@@ -263,6 +275,23 @@ function takeHtml(t, index, inInbox) {
 }
 
 const UNFOLDED = new Set(); // idées dont le texte est déplié
+function takesHtml(list) {
+  const out = [];
+  let n = 0;
+  const one = (t, idx) => { out.push(takeHtml(t, idx, false)); layersOf(t).forEach(l => out.push(takeHtml(l, idx, false))); };
+  for (const t of list) {
+    if (baseOf(t) || prevOf(t)) continue; // rangée avec sa prise, ou avec sa pile
+    const stack = stackOf(t);
+    const idx = n++;
+    if (stack.length < 2) { one(t, idx); continue; }
+    const olds = stack.filter(superseded);
+    stack.filter(v => !superseded(v)).forEach(v => one(v, idx));
+    const open = VER_OPEN.has(t.id);
+    out.push(`<li class="ver-fold"><button class="txt-btn" data-action="ver-fold" data-id="${t.id}">${open ? 'masquer' : 'voir'} ${olds.length > 1 ? `les ${olds.length} versions précédentes` : 'la version précédente'}</button></li>`);
+    if (open) olds.forEach(v => one(v, idx));
+  }
+  return out.join('');
+}
 function blockHtml(idea, list, full = false) {
   if (!idea) {
     return `<section class="block inbox" data-drop="inbox">
@@ -284,7 +313,7 @@ function blockHtml(idea, list, full = false) {
     <div class="block-head">
       <h3 class="block-title ${idea.title ? '' : 'placeholder'}" data-action="rename" data-idea="${idea.id}">${esc(ideaTitle(idea))}</h3>
       <button class="star ${idea.starred ? 'on' : ''}" data-action="star" data-idea="${idea.id}" aria-label="Favori">${idea.starred ? '★' : '☆'}</button>
-      ${list.filter(t => !baseOf(t)).length > 1 ? `<button class="txt-btn" data-action="play-all" data-idea="${idea.id}">écouter</button>` : ''}
+      ${list.filter(t => !baseOf(t) && !superseded(t)).length > 1 ? `<button class="txt-btn" data-action="play-all" data-idea="${idea.id}">écouter</button>` : ''}
       <button class="mini-btn" data-action="idea-menu" data-idea="${idea.id}" aria-label="Options de l'idée">${ICONS.more}</button>
     </div>
     <p class="block-sub">${news.any ? '<span class="news">nouveau</span>' : ''}<span>${esc(sub)}</span>${tags.map(t => `<span class="tag">#${esc(t)}</span>`).join('')}</p>
@@ -292,7 +321,7 @@ function blockHtml(idea, list, full = false) {
     ${idea.chords ? `<div class="chords ${open ? 'open' : ''}" data-action="tempo" data-idea="${idea.id}" title="Modifier">${esc(idea.chords)}</div>` : ''}
     ${idea.notes ? `<div class="lyrics ${open ? 'open' : ''}" data-action="text" data-idea="${idea.id}" title="Modifier le texte">${esc(idea.notes)}</div>` : ''}
     ${long && !full ? `<button class="txt-btn fold" data-action="fold" data-idea="${idea.id}">${open ? 'replier' : 'tout lire'}</button>` : ''}
-    <ol class="takes">${(() => { let n = 0; return list.map(t => takeHtml(t, baseOf(t) ? n - 1 : n++, false)).join(''); })()}</ol>
+    <ol class="takes">${takesHtml(list)}</ol>
     <div class="block-foot">
       <button class="add-take" data-action="record-into" data-idea="${idea.id}">${list.length ? '+ enregistrer une suite' : '+ enregistrer'}</button>
       ${list.length ? '' : `<button class="add-take second" data-action="import-into" data-idea="${idea.id}">+ importer</button>`}
@@ -331,7 +360,7 @@ function albumsHtml() {
     if ((!a && !all.length) || (filtering && !list.length)) return '';
     const key = a ? a.id : 'none';
     const open = filtering || ALB_OPEN.has(key) || list.some(i => i.id === S.openIdea);
-    const dur = list.reduce((sum, i) => sum + takesOf(i.id).filter(t => !baseOf(t)).reduce((x, t) => x + lenOf(t), 0), 0);
+    const dur = list.reduce((sum, i) => sum + takesOf(i.id).filter(t => !baseOf(t) && !superseded(t)).reduce((x, t) => x + lenOf(t), 0), 0);
     const meta = [morceaux(list.length), dur ? fmtLong(dur) : ''].filter(Boolean).join(' · ');
     return `<section class="album ${open ? 'open' : ''}" data-album="${key}">
       <div class="album-head ${a ? 'has-cover' : ''}" data-action="album-toggle" data-album-id="${key}">
@@ -1415,7 +1444,49 @@ function openStage(set, ideaId = null) {
 }
 
 let importDest = null; // idée qui recevra les fichiers choisis (rien = « À trier »)
-function pickImport(ideaId = null) { importDest = ideaId; $('#importInput').click(); }
+let versionDest = null; // prise sur laquelle on pose le prochain fichier choisi
+function pickImport(ideaId = null) { importDest = ideaId; versionDest = null; $('#importInput').click(); }
+function pickVersion(take) {
+  if (!take) return;
+  // La colonne arrive avec supabase-versions.sql : tant qu'elle manque, on n'envoie rien.
+  if (isCloud() && !S.takes.some(t => 'version_of' in t)) { toast('Les versions ne sont pas encore activées sur le serveur'); return; }
+  versionDest = take.id; $('#importInput').click(); }
+async function addVersion(file, prev) {
+  if (!isAudioFile(file)) { toast('Aucun fichier audio'); return; }
+  const idea = ideaById(prev.idea_id);
+  if (!idea) return;
+  const picked = await openSheet(`<h2>Qu'est-ce que tu as ajouté ?</h2>
+    <p class="sub">${esc(file.name)} · par-dessus « ${esc(prev.title || ideaTitle(idea))} »</p>
+    <div class="inst-picker">${INSTRUMENTS.map(i => `<button class="inst-btn" data-inst="${i.id}">${i.icon}<span>${i.label}</span></button>`).join('')}</div>`,
+  (sh, close) => sh.querySelectorAll('[data-inst]').forEach(b => { b.onclick = () => close(b.dataset.inst); }));
+  if (!picked) { toast('Rien envoyé'); return; }
+  setStatus(`Envoi : ${file.name}`);
+  try {
+    const info = await computePeaks(file);
+    const take = {
+      id: uid(), idea_id: idea.id, title: '', notes: '', instrument: picked, version_of: prev.id,
+      duration: info ? info.duration : await probeDuration(file), peaks: info ? info.peaks : [],
+      mime: file.type || 'audio/mp4', path: '', position: prev.position, created_at: nowIso(),
+    };
+    if (isCloud()) take.author = idea.group_id ? (myMember(idea.group_id)?.name || '') : '';
+    await S.store.saveTake(take, file);
+    S.takes.push(take);
+    await touchIdea(idea);
+    render();
+    toast(`Version ${pathOf(take).length} envoyée`);
+  } catch (e) { fail(e, 'Envoi impossible'); }
+  setStatus('');
+}
+async function downloadTake(take) {
+  const blob = await S.store.getBlob(take);
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  const idea = ideaById(take.idea_id);
+  const name = take.title || (pathOf(take).length > 1 || superseded(take) ? `v${pathOf(take).length}` : fmtDayTime(take.created_at));
+  a.download = `${(idea ? ideaTitle(idea) + ' - ' : '') + name}.${window.FredonStore.extFor(take.mime)}`.replace(/[\\/:*?"<>|]/g, '-');
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
 async function touchIdea(idea) {
   if (!idea) return;
   idea.updated_at = nowIso();
@@ -2087,6 +2158,7 @@ async function takeMenu(take) {
     { label: 'Instrument', value: 'instrument', sub: instrumentOf(take.instrument)?.label || 'Non précisé' },
     { label: 'Note', ico: '¶', value: 'note' },
     take.idea_id && ideaById(take.idea_id) && { label: 'Enregistrer par-dessus', ico: '+', value: 'over', sub: 'Tu joues en écoutant cette prise, au casque' },
+    take.idea_id && ideaById(take.idea_id) && !baseOf(take) && { label: 'Poser une version par-dessus', ico: '⇡', value: 'version', sub: 'Tu as ajouté un instrument dans ton logiciel : envoie le nouveau mixage' },
     baseOf(take) && { label: 'Recaler la piste', ico: '↔', value: 'nudge', sub: `Décalage : ${fmtMs((take.offset_ms || 0) - Math.round(cutIn(baseOf(take)) * 1000))}` },
     { label: 'Couper le début et la fin', ico: '✂', value: 'cut', sub: isCut(take) ? `Garde ${fmtDur(lenOf(take))} sur ${fmtDur(take.duration)}` : '' },
     { label: 'Déplacer vers…', ico: '↳', value: 'move' },
@@ -2116,18 +2188,16 @@ async function takeMenu(take) {
       const dest = await pickIdea('Déplacer vers…', { exclude: take.idea_id, allowInbox: !!take.idea_id });
       if (dest) await moveTake(take.id, { drop: dest });
     }
-    if (v === 'download') {
-      const blob = await S.store.getBlob(take);
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      const idea = ideaById(take.idea_id);
-      a.download = `${(idea ? ideaTitle(idea) + ' - ' : '') + (take.title || fmtDayTime(take.created_at))}.${window.FredonStore.extFor(take.mime)}`.replace(/[\\/:*?"<>|]/g, '-');
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-    }
+    if (v === 'download') await downloadTake(take);
+    if (v === 'version') return pickVersion(take);
     if (v === 'delete') {
       if (!(await confirmBox('Supprimer cette prise ?', "L'enregistrement sera effacé définitivement.", 'Supprimer'))) return;
       if (S.playing === take.id) { audio.pause(); S.playing = null; }
+      // Les versions posées dessus se raccrochent à la précédente : la pile reste entière.
+      for (const c of S.takes.filter(x => x.version_of === take.id)) {
+        c.version_of = take.version_of || null;
+        try { await S.store.saveTake(c); } catch {}
+      }
       await S.store.deleteTake(take);
       S.takes = S.takes.filter(t => t !== take);
       render();
@@ -3211,7 +3281,13 @@ function wireUi() {
   $('#metroTap').onclick = () => { const t = recTap(); if (t) setRecBpm(t); };
   $('#settingsBtn').onclick = openSettings;
   $('#importBtn').onclick = () => pickImport();
-  $('#importInput').onchange = e => { const f = e.target.files; if (f && f.length) importFiles(f, ideaById(importDest) ? importDest : undefined); e.target.value = ''; };
+  $('#importInput').onchange = e => {
+    const f = e.target.files;
+    const prev = versionDest && takeById(versionDest);
+    versionDest = null;
+    if (f && f.length) { if (prev) addVersion(f[0], prev); else importFiles(f, ideaById(importDest) ? importDest : undefined); }
+    e.target.value = '';
+  };
   $('#hero').onclick = e => { if (e.target.closest('#newSong')) createSong(); if (e.target.closest('#newAlbum')) createAlbum(); if (e.target.closest('#newSet')) createSet();
     const g = groupById(S.scope);
     const band = e.target.closest('[data-band]');
@@ -3278,6 +3354,9 @@ function wireUi() {
     if (a === 'take-menu') takeMenu(takeById(el.dataset.id));
     if (a === 'loop' || a === 'loop-a' || a === 'loop-b') loopAction(a, el.dataset.id);
     if (a === 'mix') playMix(el.dataset.id);
+    if (a === 'ver-add') pickVersion(takeById(el.dataset.id));
+    if (a === 'ver-download' && takeById(el.dataset.id)) downloadTake(takeById(el.dataset.id)).catch(err => fail(err, 'Téléchargement impossible'));
+    if (a === 'ver-fold') { if (!VER_OPEN.delete(el.dataset.id)) VER_OPEN.add(el.dataset.id); render(); }
     if (a === 'tempo' && idea) editTempo(idea);
     if (a === 'rename' && idea) renameIdea(idea);
     if (a === 'text' && idea) editText(idea);
@@ -3286,7 +3365,7 @@ function wireUi() {
     if (a === 'import-into' && idea) pickImport(idea.id);
     if (a === 'fold' && idea) { if (!UNFOLDED.delete(idea.id)) UNFOLDED.add(idea.id); render(); }
     if (a === 'play-all' && idea) {
-      const ids = takesOf(idea.id).filter(t => !baseOf(t)).map(t => t.id); // les pistes superposées ne se lisent pas à la suite
+      const ids = takesOf(idea.id).filter(t => !baseOf(t) && !superseded(t)).map(t => t.id); // les pistes superposées ne se lisent pas à la suite
       if (S.playing && ids.includes(S.playing) && !audio.paused) audio.pause(); else play(ids[0], ids.slice(1));
     }
     if (a === 'star' && idea) {
