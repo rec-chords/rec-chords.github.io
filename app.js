@@ -983,7 +983,13 @@ function actionSheet(title, items) {
     (sh, close) => {
       sh.querySelectorAll('[data-i]').forEach(b => { b.onclick = () => close(items[+b.dataset.i].value); });
       const star = sh.querySelector('[data-star]');
-      if (star) star.onclick = () => close('star');
+      if (star) star.onclick = () => {
+        if (!title.onStar) return close('star');
+        const on = !!title.onStar();
+        star.classList.toggle('on', on);
+        star.setAttribute('aria-label', on ? 'Retirer des favoris' : 'Ajouter aux favoris');
+        star.title = star.getAttribute('aria-label');
+      };
     });
   }
   return openSheet(`<h2>${esc(title)}</h2><div class="choices">${items.map((it, i) =>
@@ -1247,10 +1253,11 @@ async function moveSong(id, target) {
   }
   idea.album_id = albumId;
   idea.track = track;
+  if (!albumId && STAGES[target.stage] && stageReady()) idea.stage = target.stage;
   render();
   try {
     await S.store.saveIdea(idea);
-    toast(from === albumId ? 'Ordre modifié' : albumId ? `Rangé dans « ${albumById(albumId).name} »` : 'Sorti de l\'album');
+    toast(from === albumId ? 'Ordre modifié' : albumId ? `Rangé dans « ${albumById(albumId).name} »` : `Sorti de l'album, dans ${STAGES[stageOf(idea)][1]}`);
   } catch (e) { fail(e, 'Déplacement impossible'); await reload(); }
 }
 
@@ -2075,7 +2082,7 @@ async function openSaveSheet(rec, target) {
 /* ---------------- Menus ---------------- */
 async function ideaMenu(idea) {
   const group = groupById(idea.group_id);
-  const v = await actionSheet({ title: ideaTitle(idea), kind: albumOf(idea) ? 'Morceau' : STAGES[stageOf(idea)][0], star: !!idea.starred }, [
+  const v = await actionSheet({ title: ideaTitle(idea), kind: albumOf(idea) ? 'Morceau' : STAGES[stageOf(idea)][0], star: !!idea.starred, onStar: () => { idea.starred = !idea.starred; render(); S.store.saveIdea(idea).catch(e => fail(e, 'Action impossible')); return idea.starred; } }, [
     { label: 'Renommer', ico: '✎', value: 'rename' },
     { label: 'Étiquettes', ico: '#', value: 'tags', sub: (idea.tags || []).join(', ') },
     { label: 'Texte', value: 'notes', sub: 'Paroles, accords, notes' },
@@ -2883,6 +2890,9 @@ function moveDrag(x, y) {
     return;
   }
   if (DRAG.kind === 'idea') {
+    $('#tabs').classList.add('drop-ready');
+    const tab = under && under.closest('.tab[data-tab="idea"], .tab[data-tab="compo"]');
+    if (tab) { tab.classList.add('drop-hover'); DRAG.target = { album: 'none', stage: tab.dataset.tab }; return; }
     const sec = under && under.closest('[data-album]');
     if (!sec) return;
     sec.classList.add('drop-hover');
@@ -2913,6 +2923,7 @@ function moveDrag(x, y) {
 
 function endDrag(cancel = false) {
   clearInterval(DRAG.scroll);
+  $('#tabs').classList.remove('drop-ready');
   DRAG.ghost && DRAG.ghost.remove();
   document.body.classList.remove('dragging');
   clearDropMarks();

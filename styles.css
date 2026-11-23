@@ -862,3 +862,21 @@ body { background-image: repeating-linear-gradient(45deg, color-mix(in srgb, var
 @media (max-width: 480px) { .amp .pad { min-height: 72px; padding: 9px 11px; } .amp .pad svg { margin-bottom: 7px; } .amp .pads { gap: 6px; } .amp-badge { display: none; } .amp-grille { padding-bottom: 9px; } }
 @media (max-width: 400px) { .amp-knobs:has(.amp-star) i:nth-child(n+3) { display: none; } }
 @media (max-width: 480px) { .amp .pads:has(.pad:nth-child(9)) .pad { min-height: 62px; } .amp .pads:has(.pad:nth-child(9)) .pad small { display: none; } }
+
+/* ---------- Le favori est un potard : il tourne et s'allume ---------- */
+.amp-knobs .amp-star { position: relative; width: 30px; height: 30px; margin: 0; border: 1px solid var(--line); border-radius: 50%; color: var(--dim);
+  background: radial-gradient(circle at 35% 28%, color-mix(in srgb, var(--text) 20%, var(--bg)), var(--bg) 72%);
+  box-shadow: 0 0 0 3px var(--bg), 0 0 0 4px var(--line); transform: rotate(-50deg); transition: transform .28s cubic-bezier(.3, 1.4, .5, 1), box-shadow .2s, color .2s; }
+.amp-knobs .amp-star::after { content: ""; position: absolute; left: 50%; top: 2px; width: 2px; height: 6px; margin-left: -1px; border-radius: 1px; background: var(--dim); transition: background .2s; }
+.amp-knobs .amp-star::before { content: ""; position: absolute; inset: -9px; border-radius: 50%; }
+.amp-knobs .amp-star svg { width: 13px; height: 13px; margin-top: 3px; transform: rotate(50deg); transition: transform .28s cubic-bezier(.3, 1.4, .5, 1); }
+.amp-knobs .amp-star:hover { color: var(--text); border-color: var(--line); }
+.amp-knobs .amp-star:active { transform: rotate(-50deg) scale(.94); }
+.amp-knobs .amp-star.on { color: var(--accent); transform: rotate(60deg); box-shadow: 0 0 0 3px var(--bg), 0 0 0 4px var(--accent), 0 0 12px 3px color-mix(in srgb, var(--accent) 55%, transparent); }
+.amp-knobs .amp-star.on::after { background: var(--accent); }
+.amp-knobs .amp-star.on svg { transform: rotate(-60deg); }
+.amp-knobs .amp-star.on:active { transform: rotate(60deg) scale(.94); }
+@media (prefers-reduced-motion: reduce) { .amp-knobs .amp-star, .amp-knobs .amp-star svg { transition: none; } }
+/* Déposer un morceau d'album sur un onglet */
+.tabs.drop-ready .tab[data-tab="idea"], .tabs.drop-ready .tab[data-tab="compo"] { color: var(--text); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent); }
+.tabs .tab.drop-hover { background: color-mix(in srgb, var(--accent) 28%, var(--bg)); box-shadow: inset 0 0 0 2px var(--accent); }
