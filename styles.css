@@ -880,3 +880,13 @@ body { background-image: repeating-linear-gradient(45deg, color-mix(in srgb, var
 /* Déposer un morceau d'album sur un onglet */
 .tabs.drop-ready .tab[data-tab="idea"], .tabs.drop-ready .tab[data-tab="compo"] { color: var(--text); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent); }
 .tabs .tab.drop-hover { background: color-mix(in srgb, var(--accent) 28%, var(--bg)); box-shadow: inset 0 0 0 2px var(--accent); }
+
+/* Tout bloc se glisse par son titre vers un onglet */
+.tabs.drop-ready .tab { color: var(--text); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent); }
+.tabs.drop-ready .tab.drop-hover { background: color-mix(in srgb, var(--accent) 28%, var(--bg)); box-shadow: inset 0 0 0 2px var(--accent); }
+.block:not(.inbox):not(.in-album):not(.new-zone) > .block-head { cursor: grab; }
+.block-head.lifting { opacity: .35; }
+.block-head.ghost-drag { position: fixed; left: 0; top: 0; z-index: 90; pointer-events: none; padding: 10px 14px; border: 1px solid var(--accent); border-radius: 6px; background: var(--soft); box-shadow: 0 10px 30px rgba(0, 0, 0, .5); }
+.block-head.ghost-drag button, .block-head.ghost-drag a { display: none; }
+.block-head.ghost-drag { width: auto !important; max-width: 230px; opacity: .92; }
+.block-head.ghost-drag .block-title { font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

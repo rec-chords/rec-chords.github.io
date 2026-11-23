@@ -1237,6 +1237,17 @@ async function fileIdea(idea) {
 async function moveSong(id, target) {
   const idea = ideaById(id);
   if (!idea) return;
+  if (target.stage) { // posé sur un onglet
+    if (target.stage === 'albums') return isCloud() ? fileIdea(idea) : undefined;
+    const inAlbum = !!albumOf(idea);
+    if (!STAGES[target.stage] || (!inAlbum && stageOf(idea) === target.stage) || !stageReady()) return;
+    if (inAlbum) { idea.album_id = null; idea.track = 0; }
+    idea.stage = target.stage;
+    render();
+    try { await S.store.saveIdea(idea); toast(`« ${ideaTitle(idea)} » est dans ${STAGES[target.stage][1]}`); }
+    catch (e) { fail(e, 'Déplacement impossible'); await reload(); }
+    return;
+  }
   const albumId = target.album === 'none' ? null : target.album;
   if (albumId && !albumById(albumId)) return;
   const from = albumOf(idea)?.id || null;
@@ -2891,7 +2902,7 @@ function moveDrag(x, y) {
   }
   if (DRAG.kind === 'idea') {
     $('#tabs').classList.add('drop-ready');
-    const tab = under && under.closest('.tab[data-tab="idea"], .tab[data-tab="compo"]');
+    const tab = under && under.closest('.tab[data-tab]');
     if (tab) { tab.classList.add('drop-hover'); DRAG.target = { album: 'none', stage: tab.dataset.tab }; return; }
     const sec = under && under.closest('[data-album]');
     if (!sec) return;
@@ -2935,14 +2946,18 @@ function endDrag(cancel = false) {
   else if (!cancel && target) (kind === 'idea' ? moveSong : moveTake)(id, target);
 }
 
-const dragOf = (t, x, y) => ({ id: t.dataset.id || t.dataset.idea || t.dataset.setIdea, set: t.dataset.setIdea ? t.dataset.set : null,
-  kind: t.dataset.setIdea ? 'set' : t.dataset.idea ? 'idea' : 'take', el: t, x, y });
+// On attrape une prise, un morceau d'album, ou un bloc par son titre (pour le poser sur un onglet).
+const DRAG_SRC = '.take, .song-row, .block:not(.inbox):not(.in-album):not(.new-zone) > .block-head';
+const dragOf = (t, x, y) => (t.classList.contains('block-head')
+  ? { id: t.closest('.block').dataset.drop, set: null, kind: 'idea', el: t, x, y }
+  : { id: t.dataset.id || t.dataset.idea || t.dataset.setIdea, set: t.dataset.setIdea ? t.dataset.set : null,
+    kind: t.dataset.setIdea ? 'set' : t.dataset.idea ? 'idea' : 'take', el: t, x, y });
 function wireDrag() {
   const board = $('#board');
   // Souris / stylet
   board.addEventListener('pointerdown', e => {
     if (e.pointerType === 'touch' || e.button !== 0) return;
-    const t = e.target.closest('.take, .song-row');
+    const t = e.target.closest(DRAG_SRC);
     if (!t || e.target.closest('button')) return;
     DRAG.pending = dragOf(t, e.clientX, e.clientY);
   });
@@ -2960,7 +2975,7 @@ function wireDrag() {
 
   // Doigt : appui long pour attraper, puis glisser
   board.addEventListener('touchstart', e => {
-    const t = e.target.closest('.take, .song-row');
+    const t = e.target.closest(DRAG_SRC);
     if (!t || e.target.closest('button') || e.touches.length > 1) return;
     const pt = e.touches[0];
     DRAG.pending = dragOf(t, pt.clientX, pt.clientY);
@@ -2985,7 +3000,7 @@ function wireDrag() {
   };
   document.addEventListener('touchend', touchEnd(false));
   document.addEventListener('touchcancel', touchEnd(true));
-  board.addEventListener('contextmenu', e => { if (e.target.closest('.take, .song-row')) e.preventDefault(); });
+  board.addEventListener('contextmenu', e => { if (e.target.closest(DRAG_SRC)) e.preventDefault(); });
 }
 
 /* ---------------- Import de vocaux existants ---------------- */
