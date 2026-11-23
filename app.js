@@ -339,6 +339,7 @@ function blockHtml(idea, list, full = false) {
   const open = full || (long && UNFOLDED.has(idea.id));
   return `<section class="block ${full ? 'in-album' : ''}" data-drop="${idea.id}">
     <div class="block-head">
+      <span class="grip" title="Glisser vers un onglet" aria-hidden="true"></span>
       <h3 class="block-title ${idea.title ? '' : 'placeholder'}" data-action="rename" data-idea="${idea.id}">${esc(ideaTitle(idea))}</h3>
       <button class="star ${idea.starred ? 'on' : ''}" data-action="star" data-idea="${idea.id}" aria-label="Favori">${idea.starred ? '★' : '☆'}</button>
       ${list.filter(t => !baseOf(t) && !superseded(t)).length > 1 ? `<button class="txt-btn" data-action="play-all" data-idea="${idea.id}">écouter</button>` : ''}
@@ -2985,7 +2986,7 @@ function wireDrag() {
       if (!p) return;
       try { navigator.vibrate && navigator.vibrate(18); } catch {}
       beginDrag(p, p.x, p.y);
-    }, 380);
+    }, e.target.closest('.grip') ? 70 : 380);
   }, { passive: true });
   document.addEventListener('touchmove', e => {
     const pt = e.touches[0];

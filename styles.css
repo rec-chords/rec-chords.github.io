@@ -890,3 +890,14 @@ body { background-image: repeating-linear-gradient(45deg, color-mix(in srgb, var
 .block-head.ghost-drag button, .block-head.ghost-drag a { display: none; }
 .block-head.ghost-drag { width: auto !important; max-width: 230px; opacity: .92; }
 .block-head.ghost-drag .block-title { font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* La poignée d'un bloc : six points à gauche du titre, et plus de texte sélectionné en glissant */
+.block-head, .take, .song-row { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+body.dragging { -webkit-user-select: none; user-select: none; }
+.grip { position: relative; flex: none; align-self: flex-start; width: 12px; height: 19px; margin: 7px -4px 0 0; cursor: grab; touch-action: none;
+  background: radial-gradient(circle, var(--dim) 1.3px, transparent 1.7px) 0 0 / 6px 6.33px; transition: filter .12s; }
+.grip::before { content: ""; position: absolute; inset: -12px -8px -12px -14px; }
+.block-head:hover .grip, .grip:active { filter: brightness(1.9); }
+.block.in-album .grip { display: none; }
+.block-head::before { display: none; }
+.block:has(.take.is-playing) .grip { background-image: radial-gradient(circle, var(--accent) 1.4px, transparent 1.8px); filter: drop-shadow(0 0 4px var(--accent)); }
