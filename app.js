@@ -937,8 +937,8 @@ const ACT = {
 // Un titre donné sous la forme { title, kind } affiche les actions en pads, comme sur une boîte à rythmes.
 function actionSheet(title, items) {
   if (title && typeof title === 'object') {
-    return openSheet(`<p class="pads-kind">${esc(title.kind || '')}</p><h2>${esc(title.title)}</h2><div class="pads">${items.map((it, i) =>
-      `<button class="pad ${it.cls || ''}" data-i="${i}">${ico(ACT[it.value] || '<circle cx="12" cy="12" r="2"/>')}<b>${esc(it.label)}</b>${it.sub ? `<small>${esc(it.sub)}</small>` : ''}</button>`).join('')}</div>`,
+    return openSheet(`<div class="amp"><div class="amp-head"><div class="amp-name"><p class="pads-kind"><i class="amp-led"></i>${esc(title.kind || '')}</p><h2>${esc(title.title)}</h2></div><div class="amp-knobs" aria-hidden="true"><i></i><i></i><i></i></div></div><div class="amp-grille"><div class="pads">${items.map((it, i) =>
+      `<button class="pad ${it.cls || ''}" data-i="${i}">${ico(ACT[it.value] || '<circle cx="12" cy="12" r="2"/>')}<b>${esc(it.label)}</b>${it.sub ? `<small>${esc(it.sub)}</small>` : ''}</button>`).join('')}</div><p class="amp-badge" aria-hidden="true">Rec.</p></div></div>`,
     (sh, close) => sh.querySelectorAll('[data-i]').forEach(b => { b.onclick = () => close(items[+b.dataset.i].value); }));
   }
   return openSheet(`<h2>${esc(title)}</h2><div class="choices">${items.map((it, i) =>
