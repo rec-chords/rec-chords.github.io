@@ -850,3 +850,15 @@ body { background-image: repeating-linear-gradient(45deg, color-mix(in srgb, var
 .tab-empty { column-span: all; max-width: 46ch; margin: 6px 0 0; font: 14.5px/1.5 var(--mono); color: var(--muted); }
 @media (max-width: 520px) { .tabs { margin: 16px 16px 0; } .tab { gap: 5px; font-size: 12.5px; } }
 @media (max-width: 380px) { .tab i { display: none; } .tab.on { box-shadow: inset 0 -2px 0 var(--accent); } }
+
+/* ---------- Ampli : le favori sur la façade, et un menu plus court sur téléphone ---------- */
+.amp-knobs { align-items: center; }
+.amp-star { display: grid; place-items: center; width: 38px; height: 38px; margin-right: 2px; border-radius: 50%; border: 1px solid var(--line); background: var(--bg); color: var(--muted); cursor: pointer; transition: color .12s, border-color .12s, transform .08s; }
+.amp-star svg { width: 20px; height: 20px; }
+.amp-star:hover { color: var(--text); border-color: var(--accent); }
+.amp-star:active { transform: scale(.93); }
+.amp-star.on { color: var(--accent); border-color: var(--accent); box-shadow: 0 0 9px 0 color-mix(in srgb, var(--accent) 60%, transparent); }
+.amp-star.on svg path { fill: currentColor; }
+@media (max-width: 480px) { .amp .pad { min-height: 72px; padding: 9px 11px; } .amp .pad svg { margin-bottom: 7px; } .amp .pads { gap: 6px; } .amp-badge { display: none; } .amp-grille { padding-bottom: 9px; } }
+@media (max-width: 400px) { .amp-knobs:has(.amp-star) i:nth-child(n+3) { display: none; } }
+@media (max-width: 480px) { .amp .pads:has(.pad:nth-child(9)) .pad { min-height: 62px; } .amp .pads:has(.pad:nth-child(9)) .pad small { display: none; } }

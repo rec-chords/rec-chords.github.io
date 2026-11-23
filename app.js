@@ -971,15 +971,20 @@ const ACT = {
   merge: '<path d="M5 5c5 0 7 3 7 7v8M19 5c-5 0-7 3-7 7M9 17l3 3 3-3"/>',
   fill: '<path d="M12 5v14M5 12h14"/>',
   stage: '<path d="M5 20V8M12 20V4M19 20v-9"/><path d="M3 20h18"/>',
+  out: '<path d="M14 5h5v5M19 5l-8 8"/><path d="M10 6H6a1 1 0 00-1 1v11a1 1 0 001 1h11a1 1 0 001-1v-4"/>',
   up: '<path d="M12 19V5M6 11l6-6 6 6"/>',
   down: '<path d="M12 5v14M6 13l6 6 6-6"/>',
 };
 // Un titre donné sous la forme { title, kind } affiche les actions en pads, comme sur une boîte à rythmes.
 function actionSheet(title, items) {
   if (title && typeof title === 'object') {
-    return openSheet(`<div class="amp"><div class="amp-head"><div class="amp-name"><p class="pads-kind"><i class="amp-led"></i>${esc(title.kind || '')}</p><h2>${esc(title.title)}</h2></div><div class="amp-knobs" aria-hidden="true"><i></i><i></i><i></i></div></div><div class="amp-grille"><div class="pads">${items.map((it, i) =>
+    return openSheet(`<div class="amp"><div class="amp-head"><div class="amp-name"><p class="pads-kind"><i class="amp-led"></i>${esc(title.kind || '')}</p><h2>${esc(title.title)}</h2></div><div class="amp-knobs">${'star' in title ? `<button class="amp-star ${title.star ? 'on' : ''}" data-star aria-label="${title.star ? 'Retirer des favoris' : 'Ajouter aux favoris'}" title="${title.star ? 'Retirer des favoris' : 'Ajouter aux favoris'}">${ico(ACT.star)}</button>` : ''}<i aria-hidden="true"></i><i aria-hidden="true"></i><i aria-hidden="true"></i></div></div><div class="amp-grille"><div class="pads">${items.map((it, i) =>
       `<button class="pad ${it.cls || ''}" data-i="${i}">${ico(ACT[it.value] || '<circle cx="12" cy="12" r="2"/>')}<b>${esc(it.label)}</b>${it.sub ? `<small>${esc(it.sub)}</small>` : ''}</button>`).join('')}</div><p class="amp-badge" aria-hidden="true">Rec.</p></div></div>`,
-    (sh, close) => sh.querySelectorAll('[data-i]').forEach(b => { b.onclick = () => close(items[+b.dataset.i].value); }));
+    (sh, close) => {
+      sh.querySelectorAll('[data-i]').forEach(b => { b.onclick = () => close(items[+b.dataset.i].value); });
+      const star = sh.querySelector('[data-star]');
+      if (star) star.onclick = () => close('star');
+    });
   }
   return openSheet(`<h2>${esc(title)}</h2><div class="choices">${items.map((it, i) =>
     `<button class="choice ${it.cls || ''}" data-i="${i}"><span class="ico">${it.ico || '•'}</span><span>${esc(it.label)}${it.sub ? `<small>${esc(it.sub)}</small>` : ''}</span></button>`).join('')}</div>`,
@@ -2070,13 +2075,13 @@ async function openSaveSheet(rec, target) {
 /* ---------------- Menus ---------------- */
 async function ideaMenu(idea) {
   const group = groupById(idea.group_id);
-  const v = await actionSheet({ title: ideaTitle(idea), kind: albumOf(idea) ? 'Morceau' : STAGES[stageOf(idea)][0] }, [
+  const v = await actionSheet({ title: ideaTitle(idea), kind: albumOf(idea) ? 'Morceau' : STAGES[stageOf(idea)][0], star: !!idea.starred }, [
     { label: 'Renommer', ico: '✎', value: 'rename' },
     { label: 'Étiquettes', ico: '#', value: 'tags', sub: (idea.tags || []).join(', ') },
     { label: 'Texte', value: 'notes', sub: 'Paroles, accords, notes' },
     { label: 'Tempo et tonalité', ico: '♩', value: 'tempo', sub: [idea.bpm ? `${idea.bpm} bpm` : '', idea.tona || '', (idea.chords || '').split('\n')[0].trim()].filter(Boolean).join(' · ') },
     stageOf(idea) !== 'rehearsal' && !albumOf(idea) && { label: stageOf(idea) === 'compo' ? 'Repasser en idée' : 'Passer en compo', value: 'stage', sub: stageOf(idea) === 'compo' ? 'Elle retourne dans Idées' : 'Elle est assez travaillée' },
-    { label: 'Favori', value: 'star', sub: idea.starred ? 'Retirer' : 'Ajouter' },
+    albumOf(idea) && { label: 'Sortir de l\'album', value: 'out', sub: stageOf(idea) === 'idea' ? 'Vers Compos' : `Vers ${STAGES[stageOf(idea)][1]}` },
     isCloud() && !group && S.groups.length && isMine(idea) && { label: 'Partager', value: 'share', sub: 'Avec un groupe' },
     group && isMine(idea) && { label: 'Reprendre', value: 'unshare', sub: `La retirer de « ${group.name} »` },
     isCloud() && { label: 'Album', value: 'album', sub: albumOf(idea)?.name || 'Ranger dans un album' },
@@ -2092,6 +2097,15 @@ async function ideaMenu(idea) {
     if (v === 'import') return pickImport(idea.id);
     if (v === 'album') return fileIdea(idea);
     if (v === 'star') { idea.starred = !idea.starred; render(); return S.store.saveIdea(idea); }
+    if (v === 'out') {
+      const was = { album_id: idea.album_id, track: idea.track, stage: idea.stage };
+      const name = albumOf(idea)?.name || 'l\'album';
+      idea.album_id = null; idea.track = 0;
+      if (stageOf(idea) === 'idea' && stageReady()) idea.stage = 'compo';
+      try { await S.store.saveIdea(idea); } catch (e) { Object.assign(idea, was); throw e; }
+      render();
+      return toast(`« ${ideaTitle(idea)} » est sortie de « ${name} », dans ${STAGES[stageOf(idea)][1]}`);
+    }
     if (v === 'stage') {
       if (!stageReady()) return;
       const was = idea.stage;
