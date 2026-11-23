@@ -140,6 +140,33 @@ const nextTrack = albumId => tracksOf(albumId).reduce((m, i) => Math.max(m, i.tr
 const albumView = () => isCloud() && scopeAlbums().length > 0;
 const ALB_OPEN = (() => { try { return new Set(JSON.parse(localStorage.getItem('fredon.albumsOpen') || '[]')); } catch { return new Set(); } })();
 const saveAlbOpen = () => { try { localStorage.setItem('fredon.albumsOpen', JSON.stringify([...ALB_OPEN])); } catch {} };
+// Le stade d'un morceau : une idée mûrit en compo ; une répète est un enregistrement de séance.
+const STAGES = { idea: ['Idée', 'Idées'], compo: ['Compo', 'Compos'], rehearsal: ['Répète', 'Répètes'] };
+const stageOf = i => (STAGES[i.stage] ? i.stage : 'idea');
+let TAB = null;
+const tabNow = () => {
+  if (!TAB) { try { TAB = localStorage.getItem('fredon.tab'); } catch {} TAB = TAB || 'idea'; }
+  const t = STAGES[TAB] || TAB === 'albums' ? TAB : 'idea';
+  return t === 'albums' && !isCloud() ? 'idea' : t;
+};
+const inTab = (i, tab) => stageOf(i) === tab && !albumOf(i);
+const stageReady = () => {
+  if (isCloud() && S.ideas.length && !S.ideas.some(i => 'stage' in i)) { toast('Les compos et les répètes ne sont pas encore activées sur le serveur'); return false; }
+  return true;
+};
+function renderTabs() {
+  const tab = tabNow();
+  const ideas = visibleIdeas();
+  const tabs = Object.keys(STAGES).map(k => [k, STAGES[k][1], ideas.filter(i => inTab(i, k)).length]);
+  if (isCloud()) tabs.push(['albums', 'Albums', scopeAlbums().length]);
+  $('#tabs').innerHTML = tabs.map(([k, label, n]) => `<button class="tab ${k === tab ? 'on' : ''}" data-tab="${k}"><i></i><span>${label}</span><b>${n || ''}</b></button>`).join('');
+}
+const TAB_EMPTY = {
+  idea: 'Aucune idée ici. Enregistre avec la barre du bas.',
+  compo: 'Aucune compo pour l\'instant. Une idée devient une compo depuis son menu ⋯.',
+  rehearsal: 'Aucune répète pour l\'instant. Importe les fichiers de ton enregistreur avec « + nouvelle répète ».',
+  albums: 'Aucun album pour l\'instant.',
+};
 const morceaux = n => `${n} ${n > 1 ? 'morceaux' : 'morceau'}`;
 function hashOf(str) { let h = 7; for (const ch of String(str)) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return h; }
 const ideaColor = idea => (idea && idea.color) || PALETTE[hashOf(idea ? idea.id : '') % PALETTE.length];
@@ -355,7 +382,7 @@ function sidesHtml(list) {
 function albumsHtml() {
   const f = S.filter;
   const filtering = !!(f.q || f.star || f.tags.size);
-  return [...scopeAlbums(), null].map(a => {
+  return scopeAlbums().map(a => {
     const all = tracksOf(a ? a.id : null);
     const list = all.filter(matchesIdea);
     if ((!a && !all.length) || (filtering && !list.length)) return '';
@@ -387,9 +414,10 @@ function renderHero() {
   const total = takes.reduce((sum, x) => sum + lenOf(x), 0);
   const g = isCloud() ? groupById(S.scope) : null;
   const card = g ? bandHtml(g) : '';
-  hero.innerHTML = card + (n || t ? `<p><b>${n}</b> ${n > 1 ? 'idées' : 'idée'} · <b>${t}</b> ${t > 1 ? 'prises' : 'prise'} · <b>${fmtLong(total)}</b></p>` : '') +
-    '<button class="txt-btn new-song" id="newSong">+ nouvelle chanson</button>' +
-    (isCloud() ? '<button class="txt-btn new-song" id="newAlbum">+ nouvel album</button>' : '') +
+  hero.innerHTML = card + (n || t ? `<p><b>${n}</b> ${n > 1 ? 'morceaux' : 'morceau'} · <b>${t}</b> ${t > 1 ? 'prises' : 'prise'} · <b>${fmtLong(total)}</b></p>` : '') +
+    (tabNow() === 'rehearsal' ? '<button class="txt-btn new-song" id="newRehearsal">+ nouvelle répète</button>'
+      : tabNow() === 'albums' ? '<button class="txt-btn new-song" id="newAlbum">+ nouvel album</button>'
+      : '<button class="txt-btn new-song" id="newSong">+ nouvelle chanson</button>') +
     (isCloud() && SETLISTS ? '<button class="txt-btn new-song" id="newSet">+ nouvelle setlist</button>' : '') +
     (g && !card ? '<button class="txt-btn new-song" id="bandNew">+ présenter le groupe</button>' : '');
 }
@@ -614,6 +642,7 @@ function setScope(id) {
 
 function render() {
   renderScopes();
+  renderTabs();
   renderFilters();
   renderHero();
   const board = $('#board');
@@ -621,14 +650,18 @@ function render() {
   let html = '';
   let inbox = inboxTakes();
   if (f.q) inbox = inbox.filter(t => norm(t.title || fmtDayTime(t.created_at)).includes(norm(f.q)));
-  if (inbox.length && !f.star && !f.tags.size) html += blockHtml(null, inbox);
+  const tab = tabNow();
+  const searching = !!f.q;
+  if (inbox.length && !f.star && !f.tags.size && (tab === 'idea' || searching)) html += blockHtml(null, inbox);
   if (SETLISTS && isCloud() && !f.q && !f.star && !f.tags.size) html += setlistsHtml();
-  const byAlbum = albumView();
+  const byAlbum = tab === 'albums' && !searching;
   board.classList.toggle('albums-view', byAlbum);
-  if (byAlbum) html += albumsHtml();
-  else html += recentIdeas().filter(matchesIdea).map(i => blockHtml(i, takesOf(i.id))).join('');
+  const blank = !visibleIdeas().length && !inboxTakes().length && tab === 'idea';
+  const body = byAlbum ? albumsHtml()
+    : recentIdeas().filter(i => searching || inTab(i, tab)).filter(matchesIdea).map(i => blockHtml(i, takesOf(i.id))).join('');
+  html += body || (blank || html ? '' : `<p class="tab-empty">${searching || f.star || f.tags.size ? 'Rien ne correspond.' : TAB_EMPTY[tab]}</p>`);
   board.innerHTML = html;
-  $('#empty').hidden = visibleIdeas().length > 0 || inboxTakes().length > 0;
+  $('#empty').hidden = !blank;
   updatePlayUI();
 }
 
@@ -937,6 +970,7 @@ const ACT = {
   album: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="2.5"/>',
   merge: '<path d="M5 5c5 0 7 3 7 7v8M19 5c-5 0-7 3-7 7M9 17l3 3 3-3"/>',
   fill: '<path d="M12 5v14M5 12h14"/>',
+  stage: '<path d="M5 20V8M12 20V4M19 20v-9"/><path d="M3 20h18"/>',
   up: '<path d="M12 19V5M6 11l6-6 6 6"/>',
   down: '<path d="M12 5v14M6 13l6 6 6-6"/>',
 };
@@ -1012,12 +1046,20 @@ async function saveIdea(idea) {
 async function createSong(albumId = null) {
   const name = await promptText('Nom de la chanson', '', { placeholder: 'Ex : balade en La mineur' });
   if (!name) return;
-  const idea = newIdea({ title: name });
+  const idea = newIdea({ title: name, ...(!albumId && tabNow() === 'compo' && stageReady() ? { stage: 'compo' } : {}) });
   if (albumId && albumById(albumId)) { idea.album_id = albumId; idea.track = nextTrack(albumId); S.openIdea = idea.id; }
   try { await saveIdea(idea); }
   catch (e) { S.ideas = S.ideas.filter(x => x !== idea); render(); return fail(e, 'Création impossible'); }
   render();
   editText(idea);
+}
+async function createRehearsal() {
+  if (!stageReady()) return;
+  const idea = newIdea({ title: `Répète du ${fmtDay(nowIso())}`, stage: 'rehearsal' });
+  try { await saveIdea(idea); }
+  catch (e) { S.ideas = S.ideas.filter(x => x !== idea); render(); return fail(e, 'Création impossible'); }
+  render();
+  pickImport(idea.id);
 }
 /* ---------------- Albums ---------------- */
 const KINDS = ['Album', 'EP', 'Maquette', 'Single'];
@@ -2028,11 +2070,12 @@ async function openSaveSheet(rec, target) {
 /* ---------------- Menus ---------------- */
 async function ideaMenu(idea) {
   const group = groupById(idea.group_id);
-  const v = await actionSheet({ title: ideaTitle(idea), kind: 'Morceau' }, [
+  const v = await actionSheet({ title: ideaTitle(idea), kind: albumOf(idea) ? 'Morceau' : STAGES[stageOf(idea)][0] }, [
     { label: 'Renommer', ico: '✎', value: 'rename' },
     { label: 'Étiquettes', ico: '#', value: 'tags', sub: (idea.tags || []).join(', ') },
     { label: 'Texte', value: 'notes', sub: 'Paroles, accords, notes' },
     { label: 'Tempo et tonalité', ico: '♩', value: 'tempo', sub: [idea.bpm ? `${idea.bpm} bpm` : '', idea.tona || '', (idea.chords || '').split('\n')[0].trim()].filter(Boolean).join(' · ') },
+    stageOf(idea) !== 'rehearsal' && !albumOf(idea) && { label: stageOf(idea) === 'compo' ? 'Repasser en idée' : 'Passer en compo', value: 'stage', sub: stageOf(idea) === 'compo' ? 'Elle retourne dans Idées' : 'Elle est assez travaillée' },
     { label: 'Favori', value: 'star', sub: idea.starred ? 'Retirer' : 'Ajouter' },
     isCloud() && !group && S.groups.length && isMine(idea) && { label: 'Partager', value: 'share', sub: 'Avec un groupe' },
     group && isMine(idea) && { label: 'Reprendre', value: 'unshare', sub: `La retirer de « ${group.name} »` },
@@ -2049,6 +2092,14 @@ async function ideaMenu(idea) {
     if (v === 'import') return pickImport(idea.id);
     if (v === 'album') return fileIdea(idea);
     if (v === 'star') { idea.starred = !idea.starred; render(); return S.store.saveIdea(idea); }
+    if (v === 'stage') {
+      if (!stageReady()) return;
+      const was = idea.stage;
+      idea.stage = stageOf(idea) === 'compo' ? 'idea' : 'compo';
+      try { await S.store.saveIdea(idea); } catch (e) { idea.stage = was; throw e; }
+      render();
+      return toast(idea.stage === 'compo' ? `« ${ideaTitle(idea)} » est passée dans Compos` : `« ${ideaTitle(idea)} » est repassée dans Idées`);
+    }
     if (v === 'color') {
       const cur = ideaColor(idea);
       const c = await openSheet(`<h2>Couleur de l'idée</h2><div class="swatches">${PALETTE.map(col =>
@@ -3337,7 +3388,7 @@ function wireUi() {
     if (f && f.length) { if (prev) addVersion(f[0], prev); else importFiles(f, ideaById(importDest) ? importDest : undefined); }
     e.target.value = '';
   };
-  $('#hero').onclick = e => { if (e.target.closest('#newSong')) createSong(); if (e.target.closest('#newAlbum')) createAlbum(); if (e.target.closest('#newSet')) createSet();
+  $('#hero').onclick = e => { if (e.target.closest('#newSong')) createSong(); if (e.target.closest('#newRehearsal')) createRehearsal(); if (e.target.closest('#newAlbum')) createAlbum(); if (e.target.closest('#newSet')) createSet();
     const g = groupById(S.scope);
     const band = e.target.closest('[data-band]');
     if (g && (e.target.closest('#bandNew') || band?.dataset.band === 'edit')) editBand(g);
@@ -3353,6 +3404,14 @@ function wireUi() {
     if (b.hasAttribute('data-scope-manage')) return manageGroup(S.scope);
     if (b.dataset.scope === S.scope && S.scope !== 'me') return manageGroup(S.scope);
     setScope(b.dataset.scope);
+  };
+
+  $('#tabs').onclick = e => {
+    const b = e.target.closest('[data-tab]');
+    if (!b) return;
+    TAB = b.dataset.tab;
+    try { localStorage.setItem('fredon.tab', TAB); } catch {}
+    render();
   };
 
   $('#filters').onclick = e => {

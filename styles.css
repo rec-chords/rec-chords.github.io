@@ -836,3 +836,17 @@ body { background-image: repeating-linear-gradient(45deg, color-mix(in srgb, var
 .deck-meter i:nth-child(4) { height: 72%; } .deck-meter i:nth-child(5) { height: 86%; }
 .deck-meter i.on { background: var(--accent); }
 .deck-meter i.on:last-child { background: var(--red); }
+
+/* ---------- Onglets : idées, compos, répètes, albums (un sélecteur à voyants) ---------- */
+.tabs { display: flex; margin: 18px 24px 0; max-width: 560px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); overflow: hidden; }
+.tab { flex: 1 1 0; min-width: 0; display: flex; align-items: center; justify-content: center; gap: 7px; padding: 11px 4px 10px; font: 500 13.5px var(--mono); color: var(--muted); border-left: 1px solid var(--line); cursor: pointer; }
+.tab:first-child { border-left: 0; }
+.tab i { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--line); }
+.tab b { font-weight: 400; color: var(--dim); }
+.tab b:empty { display: none; }
+.tab:hover { color: var(--text); }
+.tab.on { color: var(--text); background: var(--soft); }
+.tab.on i { background: var(--accent); box-shadow: 0 0 8px 1px var(--accent); }
+.tab-empty { column-span: all; max-width: 46ch; margin: 6px 0 0; font: 14.5px/1.5 var(--mono); color: var(--muted); }
+@media (max-width: 520px) { .tabs { margin: 16px 16px 0; } .tab { gap: 5px; font-size: 12.5px; } }
+@media (max-width: 380px) { .tab i { display: none; } .tab.on { box-shadow: inset 0 -2px 0 var(--accent); } }
