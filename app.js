@@ -176,17 +176,19 @@ const allFolders = () => [...new Set(visibleIdeas().filter(i => !albumOf(i) && s
 let FOLDER = ''; // la tranche tirée de la colonne
 const folderOn = () => !(isCloud() && S.ideas.length && !S.ideas.some(i => 'folder' in i));
 const folderReady = () => { if (!folderOn()) toast('Les dossiers ne sont pas encore activés sur le serveur'); return folderOn(); };
-function rackHtml(tab) {
+function rackHtml(tab, body) {
   const ideas = visibleIdeas().filter(i => inTab(i, tab));
   const loose = ideas.filter(i => !folderOf(i)).length;
-  return `<div class="rack">${foldersIn(tab).map(n => {
-    const out = n === FOLDER;
-    return `<div class="spine ${out ? 'out' : ''}" data-folder="${esc(n)}">
-      <button class="spine-main" data-action="folder-open" data-folder="${esc(n)}" aria-expanded="${out}"><i></i><span>${esc(n)}</span><b>${ideas.filter(i => folderOf(i) === n).length}</b></button>
-      ${out ? `<button class="mini-btn" data-action="folder-menu" data-folder="${esc(n)}" aria-label="Options du dossier">${ICONS.more}</button>` : ''}
-    </div>`;
-  }).join('')}</div>
-  <p class="rack-now">${FOLDER ? `Dans « ${esc(FOLDER)} » <button class="txt-btn" data-action="folder-open" data-folder="${esc(FOLDER)}">ranger</button>` : loose ? 'Hors dossier' : 'Tout est rangé. Touche un dossier pour l\'ouvrir.'}</p>`;
+  const count = n => ideas.filter(i => folderOf(i) === n).length;
+  const shelf = `<div class="rack"><div class="rack-row">${foldersIn(tab).map(n => `<button class="spine ${n === FOLDER ? 'out' : ''}" data-action="folder-open" data-folder="${esc(n)}" aria-expanded="${n === FOLDER}" title="${esc(n)}"><i></i><span>${esc(n)}</span><b>${count(n)}</b></button>`).join('')}</div></div>`;
+  if (!FOLDER) return `${shelf}<p class="rack-now">${loose ? 'Hors dossier' : 'Tout est rangé. Touche un disque pour l\'ouvrir.'}</p>${body}`;
+  // Le dossier ouvert : un boîtier posé sous l'étagère, ses morceaux à l'intérieur.
+  return `${shelf}<section class="case">
+    <header class="case-head"><i></i><h2>${esc(FOLDER)}</h2><span>${morceaux(count(FOLDER))}</span>
+      <button class="txt-btn" data-action="folder-open" data-folder="${esc(FOLDER)}">refermer</button>
+      <button class="mini-btn" data-action="folder-menu" data-folder="${esc(FOLDER)}" aria-label="Options du dossier">${ICONS.more}</button></header>
+    <div class="case-body">${body}</div>
+  </section>`;
 }
 async function setFolder(idea, name) {
   if (!folderReady()) return;
@@ -728,8 +730,8 @@ function render() {
   board.classList.toggle('racked', racked);
   const body = byAlbum ? albumsHtml()
     : recentIdeas().filter(i => searching || inTab(i, tab)).filter(i => !racked || folderOf(i) === FOLDER).filter(matchesIdea).map(i => blockHtml(i, takesOf(i.id))).join('');
-  if (racked) html += rackHtml(tab);
-  html += body || (blank || html ? '' : `<p class="tab-empty">${searching || f.star || f.tags.size ? 'Rien ne correspond.' : TAB_EMPTY[tab]}</p>`);
+  if (racked) html += rackHtml(tab, body);
+  else html += body || (blank || html ? '' : `<p class="tab-empty">${searching || f.star || f.tags.size ? 'Rien ne correspond.' : TAB_EMPTY[tab]}</p>`);
   board.innerHTML = html;
   $('#empty').hidden = !blank;
   updatePlayUI();

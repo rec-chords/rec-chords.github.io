@@ -916,23 +916,32 @@ body.dragging { -webkit-user-select: none; user-select: none; }
 .grip .nubs circle { fill: currentColor; stroke: none; }
 .block:has(.take.is-playing) .grip .nubs circle { fill: var(--bg); }
 
-/* ---------- Dossiers : une colonne de CD, une tranche par dossier ---------- */
-.rack { column-span: all; max-width: 560px; margin: 0 0 14px; padding: 5px 5px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); display: flex; flex-direction: column; gap: 2px; }
-.spine { display: flex; align-items: stretch; border-radius: 2px; background: var(--soft); box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text) 9%, transparent), inset 0 -1px 0 rgba(0, 0, 0, .5); transition: transform .18s cubic-bezier(.3, 1.3, .5, 1), margin .18s; }
-.spine-main { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 12px; height: 34px; padding: 0 12px 0 0; text-align: left; cursor: pointer; color: var(--muted); font: 500 12.5px var(--mono); letter-spacing: .09em; text-transform: uppercase; }
+/* ---------- Dossiers : une étagère à disques, une tranche debout par dossier ---------- */
+.rack { column-span: all; max-width: 820px; margin: 0 0 16px; border-bottom: 7px solid color-mix(in srgb, var(--text) 16%, var(--bg)); border-radius: 0 0 3px 3px; box-shadow: 0 12px 16px -10px rgba(0, 0, 0, .9); }
+.rack-row { display: flex; align-items: flex-end; gap: 3px; padding: 16px 10px 0; overflow-x: auto; scrollbar-width: none; border-left: 1px solid var(--line); border-right: 1px solid var(--line); background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--text) 4%, transparent)); }
+.rack-row::-webkit-scrollbar { display: none; }
+.spine { flex: none; display: flex; flex-direction: column; align-items: center; width: 46px; height: 152px; border-radius: 2px 2px 0 0; background: var(--soft); color: var(--muted); cursor: pointer;
+  box-shadow: inset 1px 0 0 color-mix(in srgb, var(--text) 10%, transparent), inset -1px 0 0 rgba(0, 0, 0, .55); transition: transform .2s cubic-bezier(.3, 1.4, .5, 1), color .12s; }
+.spine:nth-child(3n+2) { height: 144px; }
+.spine:nth-child(4n+3) { height: 158px; width: 42px; }
 /* la charnière du boîtier */
-.spine-main i { flex: none; align-self: stretch; width: 15px; border-right: 1px solid var(--line); border-radius: 2px 0 0 2px; background: repeating-linear-gradient(180deg, transparent 0 5px, color-mix(in srgb, var(--text) 13%, transparent) 5px 6px), var(--bg); }
-.spine-main span { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.spine-main b { flex: none; font-weight: 400; letter-spacing: 0; color: var(--dim); }
-.spine:hover .spine-main { color: var(--text); }
-.spine .mini-btn { flex: none; align-self: center; margin-right: 4px; }
-.spine.out { transform: translateX(14px); margin-right: 14px; background: color-mix(in srgb, var(--accent) 16%, var(--soft)); box-shadow: inset 0 0 0 1px var(--accent), 0 4px 14px rgba(0, 0, 0, .45); }
-.spine.out .spine-main { color: var(--text); }
-.spine.out .spine-main i { background: var(--accent); border-right-color: var(--accent); }
-.spine.out .spine-main b { color: var(--text); }
-.spine.drop-hover { background: color-mix(in srgb, var(--accent) 30%, var(--bg)); box-shadow: inset 0 0 0 2px var(--accent); }
-body.dragging .spine:not(.out) { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent); }
-.rack-now { column-span: all; display: flex; align-items: baseline; gap: 12px; margin: 0 0 16px; font: 12.5px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
-.rack-now .txt-btn { text-transform: none; letter-spacing: 0; }
-@media (max-width: 520px) { .spine-main { height: 38px; } }
+.spine i { flex: none; align-self: stretch; height: 13px; border-bottom: 1px solid var(--line); border-radius: 2px 2px 0 0; background: repeating-linear-gradient(90deg, transparent 0 5px, color-mix(in srgb, var(--text) 13%, transparent) 5px 6px), var(--bg); }
+.spine span { flex: 1 1 auto; min-height: 0; padding: 8px 0 4px; writing-mode: vertical-rl; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 500 12px var(--mono); letter-spacing: .05em; text-transform: uppercase; }
+.spine b { flex: none; padding: 0 0 7px; font: 400 12px var(--mono); color: var(--dim); }
+.spine:hover { color: var(--text); transform: translateY(-4px); }
+.spine.out { transform: translateY(-12px); color: var(--text); background: color-mix(in srgb, var(--accent) 18%, var(--soft)); box-shadow: inset 0 0 0 1px var(--accent), 0 0 16px -2px color-mix(in srgb, var(--accent) 60%, transparent); }
+.spine.out i { background: var(--accent); border-bottom-color: var(--accent); }
+.spine.out b { color: var(--text); }
+.spine.drop-hover { transform: translateY(-8px); color: var(--text); background: color-mix(in srgb, var(--accent) 30%, var(--bg)); box-shadow: inset 0 0 0 2px var(--accent); }
+body.dragging .spine:not(.out):not(.drop-hover) { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent); }
+.rack-now { column-span: all; margin: 0 0 16px; font: 12.5px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
+/* Le dossier ouvert : un boîtier qui contient ses morceaux */
+.case { column-span: all; margin: 0 0 28px; border: 1px solid var(--accent); border-radius: 6px; background: color-mix(in srgb, var(--accent) 6%, var(--bg)); box-shadow: 0 0 24px -10px var(--accent); }
+.case-head { display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 0 10px 0 0; border-bottom: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line)); background: color-mix(in srgb, var(--accent) 16%, var(--soft)); border-radius: 5px 5px 0 0; }
+.case-head i { flex: none; align-self: stretch; width: 15px; border-radius: 5px 0 0 0; background: var(--accent); }
+.case-head h2 { flex: 0 1 auto; min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 13.5px var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--text); }
+.case-head span { flex: 1 1 auto; white-space: nowrap; font: 12.5px var(--mono); color: var(--muted); }
+.case-body { padding: 22px 22px 0; columns: 360px; column-gap: 56px; }
+.case-body .block { break-inside: avoid; }
+@media (max-width: 520px) { .spine { height: 136px; } .spine:nth-child(3n+2) { height: 130px; } .spine:nth-child(4n+3) { height: 142px; } .rack-row { padding-top: 14px; } .case { margin-left: -8px; margin-right: -8px; } .case-body { padding: 14px 8px 0; } .case-head { gap: 9px; } }
 @media (prefers-reduced-motion: reduce) { .spine { transition: none; } }
