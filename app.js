@@ -522,7 +522,7 @@ function bandHtml(g) {
       ${contact ? `<section><h4>Contact</h4>${p.contact ? `<p><b>${esc(p.contact)}</b></p>` : ''}${p.phone ? `<p>${esc(p.phone)}</p>` : ''}${p.mail ? `<p>${esc(p.mail)}</p>` : ''}</section>` : ''}
       ${p.links ? `<section><h4>Liens</h4><p class="band-links">${linkify(p.links)}</p></section>` : ''}
     </div>` : ''}
-    ${open ? `<p class="band-acts"><button class="txt-btn" data-band="edit">modifier la fiche</button><button class="txt-btn accent" data-band="rider">fiche technique</button></p>` : ''}
+    ${open ? `<p class="band-acts"><button class="txt-btn" data-band="edit">modifier la fiche</button><button class="txt-btn accent" data-band="rider">fiche technique</button>${g.public_slug ? '<button class="txt-btn" data-band="page">page publique</button>' : ''}</p>` : ''}
   </div>`;
 }
 async function editBand(g) {
@@ -568,7 +568,20 @@ async function editBand(g) {
     ${inp('b_phone', 'Téléphone', '06…', 40)}
     ${inp('b_mail', 'E-mail', 'groupe@exemple.fr', 120)}
     ${area('b_links', 'Liens', 'Un lien par ligne : Bandcamp, Insta, YouTube…', p.links)}
-    <p class="hint">Le premier lien devient le QR code de la fiche technique.</p>
+    <p class="hint">Le QR code de la fiche technique ouvre la page publique si elle est activée, sinon le premier lien.</p>
+
+    <h3 class="part">5 · Page publique</h3>
+    <p class="hint">Une page de présentation visible par tous, sans compte : image, description, line-up et liens. Jamais le téléphone, l'e-mail, la technique ni les enregistrements.</p>
+    ${isAdmin(g.id) ? `<label class="check"><input type="checkbox" id="bPub" ${g.public_slug ? 'checked' : ''}><span>Activer la page publique</span></label>
+    <div id="bPubBox"><label class="label" for="bSlug">Adresse de la page</label>
+      <div class="slug-row"><span>${esc(location.host)}/?groupe=</span><input class="field" id="bSlug" maxlength="40" autocomplete="off" autocapitalize="none" spellcheck="false" value="${esc(g.public_slug || slugify(g.name))}"></div></div>`
+    : `<p class="hint"><b>${g.public_slug ? 'La page est activée.' : 'La page n\'est pas activée.'}</b> Seul l'admin du groupe peut l'ouvrir ou la fermer.</p>`}
+    <label class="label" for="bTagline">Phrase d'accroche</label>
+    <input class="field" id="bTagline" maxlength="120" autocomplete="off" placeholder="Ex : du rock à guitares, fort et mélodique" value="${esc(pageOf(g).tagline || '')}">
+    <label class="label">Couleur de la page</label>
+    <div class="swatches" id="bAccent"><button type="button" class="swatch auto" data-accent="" aria-label="Couleur de Rec."></button>${PALETTE.map(c => `<button type="button" class="swatch" style="--c:${c}" data-accent="${c}" aria-label="Couleur ${c}"></button>`).join('')}</div>
+    <label class="check"><input type="checkbox" id="bShowLineup" ${pageOf(g).lineup === false ? '' : 'checked'}><span>Afficher le line-up sur la page</span></label>
+    <p class="band-acts"><button type="button" class="txt-btn accent" data-preview>voir l'aperçu</button></p>
     <div class="row"><button class="btn" data-x>Annuler</button><button class="btn primary" data-ok>Enregistrer</button></div>`,
   (sh, close) => {
     const file = sh.querySelector('#bFile');
@@ -586,25 +599,52 @@ async function editBand(g) {
       try { cover = await coverFrom(f); show(); } catch (e) { toast("Cette image n'a pas pu être lue"); }
     };
     show();
+    let accent = /^#[0-9a-f]{6}$/i.test(pageOf(g).accent || '') ? pageOf(g).accent : '';
+    const paintAccent = () => sh.querySelectorAll('#bAccent .swatch').forEach(b => b.classList.toggle('on', b.dataset.accent === accent));
+    sh.querySelector('#bAccent').onclick = e => { const b = e.target.closest('.swatch'); if (b) { accent = b.dataset.accent; paintAccent(); } };
+    paintAccent();
+    const pub = sh.querySelector('#bPub');
+    const paintPub = () => { if (pub) sh.querySelector('#bPubBox').hidden = !pub.checked; };
+    if (pub) { pub.onchange = paintPub; sh.querySelector('#bSlug').onblur = e => { e.target.value = slugify(e.target.value); }; }
+    paintPub();
     const box = sh.querySelector('#bLineup');
     sh.querySelector('[data-lu-add]').onclick = () => { box.insertAdjacentHTML('beforeend', rowHtml({})); box.lastElementChild.querySelector('input').focus(); };
     box.onclick = e => { if (e.target.closest('[data-lu-del]')) e.target.closest('.lu-row').remove(); };
     const val = id => (sh.querySelector('#' + id).value || '').replace(/\r\n?/g, '\n').trim();
     sh.querySelector('[data-x]').onclick = () => close(null);
-    sh.querySelector('[data-ok]').onclick = () => {
+    const read = () => {
       const profile = {};
       for (const k of ['style', 'city', 'set', 'brings', 'needs', 'notes', 'contact', 'phone', 'mail', 'links']) { const x = val('b_' + k); if (x) profile[k] = x; }
       const lineup = [...box.querySelectorAll('.lu-row')].map(r => Object.fromEntries([...r.querySelectorAll('[data-lu]')].map(i => [i.dataset.lu, i.value.trim()]))).filter(m => m.name || m.inst);
       if (lineup.length) profile.lineup = lineup.slice(0, 20);
-      close({ memo: val('bMemo'), cover, profile });
+      const page = {};
+      if (val('bTagline')) page.tagline = val('bTagline');
+      if (accent) page.accent = accent;
+      if (!sh.querySelector('#bShowLineup').checked) page.lineup = false;
+      if (Object.keys(page).length) profile.page = page;
+      return { memo: val('bMemo'), cover, profile };
+    };
+    sh.querySelector('[data-preview]').onclick = () => showBandPage(publicView({ ...g, ...read() }), true);
+    sh.querySelector('[data-ok]').onclick = () => {
+      if (pub && pub.checked && slugify(sh.querySelector('#bSlug').value).length < 3) { toast('L\'adresse de la page doit faire au moins 3 caractères'); sh.querySelector('#bSlug').focus(); return; }
+      close({ ...read(), pub: pub ? (pub.checked ? slugify(sh.querySelector('#bSlug').value) : '') : undefined });
     };
   });
   if (!v) return;
   const before = { memo: g.memo, cover: g.cover, profile: g.profile };
+  const pub = v.pub;
+  delete v.pub;
   Object.assign(g, v);
   render();
   try { await S.store.saveGroupProfile(g.id, v.memo, v.cover, v.profile); }
-  catch (e) { Object.assign(g, before); render(); fail(e, isNetErr(e) ? 'Il faut du réseau pour modifier la fiche du groupe' : 'Enregistrement impossible'); }
+  catch (e) { Object.assign(g, before); render(); return fail(e, isNetErr(e) ? 'Il faut du réseau pour modifier la fiche du groupe' : 'Enregistrement impossible'); }
+  if (pub === undefined || pub === (g.public_slug || '')) return;
+  try {
+    g.public_slug = (await S.store.setGroupPublic(g.id, pub)) || null;
+    BAND_OPEN.add(g.id);
+    render();
+    if (g.public_slug) sharePage(g); else toast('La page publique est fermée');
+  } catch (e) { fail(e, 'Page publique'); }
 }
 
 /* ---------------- QR code ---------------- */
@@ -735,8 +775,82 @@ const QR = (() => {
   }
   return { matrix, svg };
 })();
-// Le lien du groupe : le premier de la case « Liens » de sa fiche. C'est lui que le QR code ouvre.
+/* ----- Page publique du groupe : une présentation visible sans compte, à l'adresse ?groupe=nom ----- */
+const slugify = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40).replace(/-+$/, '');
+const pageLink = slug => `${location.origin}${location.pathname}?groupe=${slug}`;
+const pageOf = g => { const x = profOf(g).page; return x && typeof x === 'object' && !Array.isArray(x) ? x : {}; };
+const NETWORKS = [['instagram', 'Instagram'], ['youtube', 'YouTube'], ['youtu.be', 'YouTube'], ['bandcamp', 'Bandcamp'], ['spotify', 'Spotify'], ['soundcloud', 'SoundCloud'],
+  ['facebook', 'Facebook'], ['tiktok', 'TikTok'], ['deezer', 'Deezer'], ['music.apple', 'Apple Music'], ['linktr.ee', 'Linktree'], ['twitch', 'Twitch'], ['x.com', 'X'], ['twitter', 'X']];
+const urlIn = w => (/^https?:\/\/\S+\.\S+/i.test(w) ? w : /^[\w-]+(\.[\w-]+)+(\/\S*)?$/.test(w) && !w.includes('@') ? 'https://' + w : '');
+// Chaque ligne de « Liens » devient un bouton : « Insta : instagram.com/x » ou juste l'adresse.
+const linkRows = text => String(text || '').split('\n').map(line => {
+  const words = line.trim().split(/\s+/);
+  const at = words.findIndex(w => urlIn(w));
+  if (at < 0) return null;
+  const url = urlIn(words[at]);
+  const said = words.slice(0, at).join(' ').replace(/[\s:–—-]+$/, '');
+  const host = url.replace(/^https?:\/\/(www\.)?/i, '').toLowerCase();
+  return { url, label: said || (NETWORKS.find(([k]) => host.includes(k)) || [])[1] || host.split('/')[0], sub: url.replace(/^https?:\/\/(www\.)?/i, '').replace(/\/$/, '') };
+}).filter(Boolean);
+// Ce que la page montre : la même forme que ce que le serveur renvoie au public.
+const publicView = g => { const p = profOf(g); return { name: g.name, cover: g.cover, memo: g.memo, style: p.style, city: p.city, links: p.links, page: pageOf(g), lineup: lineupOf(g).map(m => ({ name: m.name, inst: m.inst })) }; };
+function bandPageHtml(b) {
+  const page = b.page && typeof b.page === 'object' ? b.page : {};
+  const tag = [b.style, b.city].filter(Boolean).join(' · ');
+  const lineup = page.lineup === false ? [] : (Array.isArray(b.lineup) ? b.lineup : []).filter(m => m && (m.name || m.inst));
+  const links = linkRows(b.links);
+  const memo = String(b.memo || '').trim();
+  return `<article class="bp-page">
+    <header class="bp-head">
+      ${isCover(b.cover) ? `<img class="bp-cover" src="${b.cover}" alt="">` : ''}
+      <div class="bp-id">
+        ${tag ? `<p class="bp-tag"><i></i>${esc(tag)}</p>` : ''}
+        <h1>${esc(b.name || '')}</h1>
+        ${page.tagline ? `<p class="bp-line">${esc(page.tagline)}</p>` : ''}
+      </div>
+    </header>
+    ${memo ? `<p class="bp-memo">${linkify(memo)}</p>` : ''}
+    ${links.length ? `<section class="bp-links"><h2>Écouter et suivre</h2><div class="bp-grille">${links.map(l => `<a class="bp-link" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer"><b>${esc(l.label)}</b><small>${esc(l.sub)}</small><span aria-hidden="true">↗</span></a>`).join('')}</div></section>` : ''}
+    ${lineup.length ? `<section class="bp-lineup"><h2>Line-up</h2><ol>${lineup.map((m, n) => `<li><span>${String(n + 1).padStart(2, '0')}</span><b>${esc(m.name || '')}</b><em>${esc(m.inst || '')}</em></li>`).join('')}</ol></section>` : ''}
+    <footer class="bp-foot"><a href="${esc(location.pathname)}">Rec<i>.</i></a><span>le carnet d'idées des groupes</span></footer>
+  </article>`;
+}
+function showBandPage(b, preview = false) {
+  let el = $('#bandpage');
+  if (!el) { el = document.createElement('div'); el.id = 'bandpage'; el.className = 'bp'; document.body.append(el); }
+  const accent = b && b.page && /^#[0-9a-f]{6}$/i.test(b.page.accent || '') ? b.page.accent : '';
+  if (accent) el.style.setProperty('--accent', accent); else el.style.removeProperty('--accent');
+  el.innerHTML = (preview ? '<div class="bp-bar"><span>Aperçu de la page publique</span><button class="txt-btn" data-bp-close>fermer</button></div>' : '') +
+    (b ? bandPageHtml(b) : `<article class="bp-page bp-none"><h1>Cette page n'existe pas</h1><p class="bp-memo">Le groupe l'a peut-être fermée, ou l'adresse est incomplète.</p>
+      <footer class="bp-foot"><a href="${esc(location.pathname)}">Rec<i>.</i></a><span>le carnet d'idées des groupes</span></footer></article>`);
+  el.hidden = false;
+  el.scrollTop = 0;
+  document.body.classList.add('paging');
+  const close = el.querySelector('[data-bp-close]');
+  if (close) close.onclick = () => { el.hidden = true; el.innerHTML = ''; document.body.classList.remove('paging'); };
+}
+// Un visiteur arrive par l'adresse du groupe : il ne voit que la page, pas l'appli.
+async function openPublicPage(raw) {
+  const slug = slugify(raw);
+  showBandPage({ name: '', page: {} });
+  let b = null;
+  try { const cloud = new CloudStore(loadConfig()); await cloud.init(); b = slug ? await cloud.publicBand(slug) : null; } catch (e) { console.error(e); }
+  if (b && b.name) document.title = b.name;
+  showBandPage(b && b.name ? b : null);
+}
+// Depuis la fiche du groupe : l'adresse à partager, son QR code, et l'aperçu.
+async function sharePage(g) {
+  const link = pageLink(g.public_slug);
+  const v = await openSheet(`<h2>Page publique</h2><p class="sub">Visible par tous, sans compte. À mettre sur une affiche, un flyer, ou en bio.</p>
+    <div class="qr-big">${QR.svg(link)}</div><p class="qr-link">${esc(link.replace(/^https?:\/\//, ''))}</p>
+    <div class="row"><button class="btn" data-see>Voir la page</button><button class="btn primary" data-copy>Copier le lien</button></div>`,
+  (sh, close) => { sh.querySelector('[data-see]').onclick = () => close('see'); sh.querySelector('[data-copy]').onclick = () => close('copy'); });
+  if (v === 'see') showBandPage(publicView(g), true);
+  if (v === 'copy') { try { await navigator.clipboard.writeText(link); toast('Lien copié'); } catch { await promptText('Copie ce lien', link); } }
+}
+// Le lien du groupe : sa page publique si elle est ouverte, sinon le premier de la case « Liens ». C'est lui que le QR code ouvre.
 const bandLink = g => {
+  if (g.public_slug) return pageLink(g.public_slug);
   for (const w of String(profOf(g).links || '').split(/\s+/)) {
     if (/^https?:\/\/\S+\.\S+/i.test(w)) return w;
     if (/^[\w-]+(\.[\w-]+)+(\/\S*)?$/.test(w) && !w.includes('@')) return 'https://' + w;
@@ -3661,6 +3775,7 @@ function wireUi() {
     const band = e.target.closest('[data-band]');
     if (g && (e.target.closest('#bandNew') || band?.dataset.band === 'edit')) editBand(g);
     if (g && band?.dataset.band === 'rider') openRider(g);
+    if (g && band?.dataset.band === 'page') sharePage(g);
     if (g && band?.dataset.band === 'fold' && !e.target.closest('a')) { if (!BAND_OPEN.delete(g.id)) BAND_OPEN.add(g.id); render(); }
   };
   $('#search').oninput = e => { S.filter.q = e.target.value; render(); };
@@ -3768,6 +3883,8 @@ function wireUi() {
 
 async function boot() {
   setTheme(currentTheme());
+  const band = new URLSearchParams(location.search).get('groupe');
+  if (band) return openPublicPage(band);
   catchInvite();
   wireUi();
   wireDrag();

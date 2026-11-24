@@ -295,6 +295,8 @@ class CloudStore {
   joinGroup(code, displayName) { return this._check(this.sb.rpc('join_group', { invite_code: code, display_name: displayName })); }
   renameGroup(id, name) { return this._check(this.sb.from('groups').update({ name }).eq('id', id)); }
   saveGroupProfile(id, memo, cover, profile) { return this._check(this.sb.rpc('set_group_profile', { gid: id, new_memo: memo || '', new_cover: cover || '', new_profile: profile || {} })); }
+  setGroupPublic(id, slug) { return this._check(this.sb.rpc('set_group_public', { gid: id, slug: slug || '' })); }
+  publicBand(slug) { return this._check(this.sb.rpc('public_band', { slug })); }
   deleteGroup(id) { return this._check(this.sb.from('groups').delete().eq('id', id)); }
   removeMember(groupId, userId) { return this._check(this.sb.from('group_members').delete().eq('group_id', groupId).eq('user_id', userId)); }
 
