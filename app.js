@@ -522,7 +522,7 @@ function bandHtml(g) {
       ${contact ? `<section><h4>Contact</h4>${p.contact ? `<p><b>${esc(p.contact)}</b></p>` : ''}${p.phone ? `<p>${esc(p.phone)}</p>` : ''}${p.mail ? `<p>${esc(p.mail)}</p>` : ''}</section>` : ''}
       ${p.links ? `<section><h4>Liens</h4><p class="band-links">${linkify(p.links)}</p></section>` : ''}
     </div>` : ''}
-    ${open ? `<p class="band-acts"><button class="txt-btn" data-band="edit">modifier la fiche</button><button class="txt-btn accent" data-band="rider">fiche technique</button>${g.public_slug ? '<button class="txt-btn" data-band="page">page publique</button>' : ''}</p>` : ''}
+    ${open ? `<p class="band-acts"><button class="txt-btn" data-band="edit">modifier la fiche</button><button class="txt-btn accent" data-band="rider">fiche technique</button><button class="txt-btn" data-band="book">le book</button>${g.public_slug ? '<button class="txt-btn" data-band="page">page publique</button>' : ''}</p>` : ''}
   </div>`;
 }
 async function editBand(g) {
@@ -576,12 +576,7 @@ async function editBand(g) {
     <div id="bPubBox"><label class="label" for="bSlug">Adresse de la page</label>
       <div class="slug-row"><span>${esc(location.host)}/?groupe=</span><input class="field" id="bSlug" maxlength="40" autocomplete="off" autocapitalize="none" spellcheck="false" value="${esc(g.public_slug || slugify(g.name))}"></div></div>`
     : `<p class="hint"><b>${g.public_slug ? 'La page est activée.' : 'La page n\'est pas activée.'}</b> Seul l'admin du groupe peut l'ouvrir ou la fermer.</p>`}
-    <label class="label" for="bTagline">Phrase d'accroche</label>
-    <input class="field" id="bTagline" maxlength="120" autocomplete="off" placeholder="Ex : du rock à guitares, fort et mélodique" value="${esc(pageOf(g).tagline || '')}">
-    <label class="label">Couleur de la page</label>
-    <div class="swatches" id="bAccent"><button type="button" class="swatch auto" data-accent="" aria-label="Couleur de Rec."></button>${PALETTE.map(c => `<button type="button" class="swatch" style="--c:${c}" data-accent="${c}" aria-label="Couleur ${c}"></button>`).join('')}</div>
-    <label class="check"><input type="checkbox" id="bShowLineup" ${pageOf(g).lineup === false ? '' : 'checked'}><span>Afficher le line-up sur la page</span></label>
-    <p class="band-acts"><button type="button" class="txt-btn accent" data-preview>voir l'aperçu</button></p>
+    <p class="hint">Le contenu et le style de la page se règlent dans « le book », depuis la fiche du groupe.</p>
     <div class="row"><button class="btn" data-x>Annuler</button><button class="btn primary" data-ok>Enregistrer</button></div>`,
   (sh, close) => {
     const file = sh.querySelector('#bFile');
@@ -599,10 +594,6 @@ async function editBand(g) {
       try { cover = await coverFrom(f); show(); } catch (e) { toast("Cette image n'a pas pu être lue"); }
     };
     show();
-    let accent = /^#[0-9a-f]{6}$/i.test(pageOf(g).accent || '') ? pageOf(g).accent : '';
-    const paintAccent = () => sh.querySelectorAll('#bAccent .swatch').forEach(b => b.classList.toggle('on', b.dataset.accent === accent));
-    sh.querySelector('#bAccent').onclick = e => { const b = e.target.closest('.swatch'); if (b) { accent = b.dataset.accent; paintAccent(); } };
-    paintAccent();
     const pub = sh.querySelector('#bPub');
     const paintPub = () => { if (pub) sh.querySelector('#bPubBox').hidden = !pub.checked; };
     if (pub) { pub.onchange = paintPub; sh.querySelector('#bSlug').onblur = e => { e.target.value = slugify(e.target.value); }; }
@@ -617,14 +608,9 @@ async function editBand(g) {
       for (const k of ['style', 'city', 'set', 'brings', 'needs', 'notes', 'contact', 'phone', 'mail', 'links']) { const x = val('b_' + k); if (x) profile[k] = x; }
       const lineup = [...box.querySelectorAll('.lu-row')].map(r => Object.fromEntries([...r.querySelectorAll('[data-lu]')].map(i => [i.dataset.lu, i.value.trim()]))).filter(m => m.name || m.inst);
       if (lineup.length) profile.lineup = lineup.slice(0, 20);
-      const page = {};
-      if (val('bTagline')) page.tagline = val('bTagline');
-      if (accent) page.accent = accent;
-      if (!sh.querySelector('#bShowLineup').checked) page.lineup = false;
-      if (Object.keys(page).length) profile.page = page;
+      if (Object.keys(pageOf(g)).length) profile.page = pageOf(g); // le book se règle ailleurs : on n'y touche pas
       return { memo: val('bMemo'), cover, profile };
     };
-    sh.querySelector('[data-preview]').onclick = () => showBandPage(publicView({ ...g, ...read() }), true);
     sh.querySelector('[data-ok]').onclick = () => {
       if (pub && pub.checked && slugify(sh.querySelector('#bSlug').value).length < 3) { toast('L\'adresse de la page doit faire au moins 3 caractères'); sh.querySelector('#bSlug').focus(); return; }
       close({ ...read(), pub: pub ? (pub.checked ? slugify(sh.querySelector('#bSlug').value) : '') : undefined });
@@ -794,12 +780,51 @@ const linkRows = text => String(text || '').split('\n').map(line => {
 }).filter(Boolean);
 // Ce que la page montre : la même forme que ce que le serveur renvoie au public.
 const publicView = g => { const p = profOf(g); return { name: g.name, cover: g.cover, memo: g.memo, style: p.style, city: p.city, links: p.links, page: pageOf(g), lineup: lineupOf(g).map(m => ({ name: m.name, inst: m.inst })) }; };
-function bandPageHtml(b) {
+// Les modèles : [clé, nom, fond, texte, accent, polices Google]. « studio » est le modèle de Rec.
+const TEMPLATES = [
+  ['studio', 'Studio', '#0b0b0d', '#f1f1f3', '#7c6cf6', ''],
+  ['rock', 'Rock', '#0e0e0e', '#f4f1ea', '#e5383b', 'Bebas+Neue&family=Inter:wght@400;600'],
+  ['punk', 'Punk', '#efe9dc', '#111111', '#ff2d6f', 'Permanent+Marker&family=Special+Elite'],
+  ['metal', 'Metal', '#050505', '#d8d8d8', '#b10f1f', 'Pirata+One&family=Barlow+Condensed:wght@400;600'],
+  ['jazz', 'Jazz', '#0d1320', '#efe6d2', '#d6a650', 'Playfair+Display:ital,wght@0,500;0,700;1,500&family=DM+Sans:wght@400;500'],
+  ['classique', 'Classique', '#f6f1e6', '#221d17', '#7b1e2b', 'Cormorant+Garamond:ital,wght@0,400;0,600;1,400'],
+  ['rap', 'Rap', '#0a0a0a', '#ffffff', '#ffd60a', 'Anton&family=Space+Grotesk:wght@400;600'],
+  ['pop', 'Pop', '#fff4f9', '#2b1b3d', '#ff4fa3', 'Fredoka:wght@400;600'],
+  ['kpop', 'K-pop', '#ddd2ff', '#1d1147', '#7c3aed', 'Unbounded:wght@500;800&family=Poppins:wght@400;600'],
+];
+const tplOf = page => (TEMPLATES.find(t => t[0] === (page && page.template)) || TEMPLATES[0]);
+function loadTplFont(tpl) {
+  if (!tpl[5] || document.getElementById('tplfont-' + tpl[0])) return;
+  const l = document.createElement('link');
+  l.id = 'tplfont-' + tpl[0]; l.rel = 'stylesheet';
+  l.href = `https://fonts.googleapis.com/css2?family=${tpl[5]}&display=swap`;
+  document.head.append(l);
+}
+const youtubeId = u => (String(u || '').match(/(?:youtu\.be\/|[?&]v=|\/embed\/|\/shorts\/|\/live\/)([\w-]{11})/) || [])[1] || '';
+const datesOf = page => (Array.isArray(page && page.dates) ? page.dates : []).filter(x => x && /^\d{4}-\d{2}-\d{2}$/.test(x.d || '') && x.where).sort((x, y) => x.d.localeCompare(y.d));
+const today = () => { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`; };
+const paras = text => esc(text).split(/\n{2,}/).map(x => `<p>${x.replace(/\n/g, '<br>')}</p>`).join('');
+function galleryHtml(photos) {
+  const list = (photos || []).filter(isCover);
+  return list.length ? `<div class="bp-gal n${Math.min(list.length, 8)}">${list.map((src, i) => `<button type="button" data-ph="${i}" aria-label="Agrandir la photo"><img src="${src}" alt="" loading="lazy"></button>`).join('')}</div>` : '';
+}
+function bandPageHtml(b, photos) {
   const page = b.page && typeof b.page === 'object' ? b.page : {};
   const tag = [b.style, b.city].filter(Boolean).join(' · ');
   const lineup = page.lineup === false ? [] : (Array.isArray(b.lineup) ? b.lineup : []).filter(m => m && (m.name || m.inst));
   const links = linkRows(b.links);
   const memo = String(b.memo || '').trim();
+  const bio = String(page.bio || '').trim();
+  const yt = youtubeId(page.video);
+  const video = yt ? '' : urlIn(String(page.video || '').trim());
+  const dates = datesOf(page);
+  const now = today();
+  const next = dates.filter(x => x.d >= now);
+  const past = dates.filter(x => x.d < now).reverse().slice(0, 6);
+  const dateLi = (x, old) => { const d = new Date(x.d + 'T12:00:00'); const u = urlIn(String(x.url || '').trim());
+    return `<li class="${old ? 'old' : ''}"><time datetime="${x.d}"><b>${String(d.getDate()).padStart(2, '0')}</b><span>${esc(d.toLocaleDateString('fr-FR', { month: 'short', year: 'numeric' }))}</span></time><span class="where">${esc(x.where)}</span>${u && !old ? `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer">infos ↗</a>` : ''}</li>`; };
+  const mail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(page.booking || '') ? page.booking : '';
+  const gal = galleryHtml(photos);
   return `<article class="bp-page">
     <header class="bp-head">
       ${isCover(b.cover) ? `<img class="bp-cover" src="${b.cover}" alt="">` : ''}
@@ -810,18 +835,36 @@ function bandPageHtml(b) {
       </div>
     </header>
     ${memo ? `<p class="bp-memo">${linkify(memo)}</p>` : ''}
+    <section class="bp-photos" ${gal ? '' : 'hidden'}>${gal}</section>
+    ${bio ? `<section class="bp-bio"><h2>Biographie</h2><div class="bp-text">${paras(bio)}</div></section>` : ''}
+    ${yt ? `<section class="bp-video"><h2>En vidéo</h2><div class="bp-frame"><iframe src="https://www.youtube-nocookie.com/embed/${yt}" title="Vidéo du groupe" loading="lazy" allow="accelerometer; encrypted-media; gyroscope; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe></div></section>`
+      : video ? `<section class="bp-video"><h2>En vidéo</h2><div class="bp-grille"><a class="bp-link" href="${esc(video)}" target="_blank" rel="noopener noreferrer"><b>Voir la vidéo</b><small>${esc(linkLabel(video))}</small><span aria-hidden="true">↗</span></a></div></section>` : ''}
+    ${next.length || past.length ? `<section class="bp-dates"><h2>Concerts</h2>
+      ${next.length ? `<ol>${next.map(x => dateLi(x, false)).join('')}</ol>` : '<p class="bp-quiet">Pas de date annoncée pour le moment.</p>'}
+      ${past.length ? `<h3>Déjà joué</h3><ol>${past.map(x => dateLi(x, true)).join('')}</ol>` : ''}</section>` : ''}
     ${links.length ? `<section class="bp-links"><h2>Écouter et suivre</h2><div class="bp-grille">${links.map(l => `<a class="bp-link" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer"><b>${esc(l.label)}</b><small>${esc(l.sub)}</small><span aria-hidden="true">↗</span></a>`).join('')}</div></section>` : ''}
     ${lineup.length ? `<section class="bp-lineup"><h2>Line-up</h2><ol>${lineup.map((m, n) => `<li><span>${String(n + 1).padStart(2, '0')}</span><b>${esc(m.name || '')}</b><em>${esc(m.inst || '')}</em></li>`).join('')}</ol></section>` : ''}
+    ${mail ? `<section class="bp-contact"><h2>Contact</h2><a href="mailto:${esc(mail)}">${esc(mail)}</a></section>` : ''}
     <footer class="bp-foot"><a href="${esc(location.pathname)}">Rec<i>.</i></a><span>le carnet d'idées des groupes</span></footer>
   </article>`;
 }
-function showBandPage(b, preview = false) {
+function showBandPage(b, preview = false, photos = []) {
   let el = $('#bandpage');
-  if (!el) { el = document.createElement('div'); el.id = 'bandpage'; el.className = 'bp'; document.body.append(el); }
+  if (!el) {
+    el = document.createElement('div'); el.id = 'bandpage'; el.className = 'bp'; document.body.append(el);
+    el.addEventListener('click', e => {
+      if (e.target.closest('.bp-zoom')) return e.target.closest('.bp-zoom').remove();
+      const ph = e.target.closest('[data-ph]');
+      if (ph) { const z = document.createElement('div'); z.className = 'bp-zoom'; z.innerHTML = `<img src="${ph.querySelector('img').src}" alt="">`; el.append(z); }
+    });
+  }
+  const tpl = tplOf(b && b.page);
+  loadTplFont(tpl);
+  el.dataset.tpl = tpl[0];
   const accent = b && b.page && /^#[0-9a-f]{6}$/i.test(b.page.accent || '') ? b.page.accent : '';
   if (accent) el.style.setProperty('--accent', accent); else el.style.removeProperty('--accent');
   el.innerHTML = (preview ? '<div class="bp-bar"><span>Aperçu de la page publique</span><button class="txt-btn" data-bp-close>fermer</button></div>' : '') +
-    (b ? bandPageHtml(b) : `<article class="bp-page bp-none"><h1>Cette page n'existe pas</h1><p class="bp-memo">Le groupe l'a peut-être fermée, ou l'adresse est incomplète.</p>
+    (b ? bandPageHtml(b, photos) : `<article class="bp-page bp-none"><h1>Cette page n'existe pas</h1><p class="bp-memo">Le groupe l'a peut-être fermée, ou l'adresse est incomplète.</p>
       <footer class="bp-foot"><a href="${esc(location.pathname)}">Rec<i>.</i></a><span>le carnet d'idées des groupes</span></footer></article>`);
   el.hidden = false;
   el.scrollTop = 0;
@@ -829,14 +872,155 @@ function showBandPage(b, preview = false) {
   const close = el.querySelector('[data-bp-close]');
   if (close) close.onclick = () => { el.hidden = true; el.innerHTML = ''; document.body.classList.remove('paging'); };
 }
+// Les photos du groupe, gardées en mémoire le temps de la session.
+const PHOTOS = new Map();
+async function photosOf(g) {
+  if (!PHOTOS.has(g.id)) { try { PHOTOS.set(g.id, await S.store.listPhotos(g.id)); } catch (e) { console.error(e); return []; } }
+  return PHOTOS.get(g.id);
+}
+async function photoFrom(file) {
+  const img = await new Promise((resolve, reject) => {
+    const el = new Image();
+    el.onload = () => resolve(el);
+    el.onerror = () => reject(new Error('Image illisible'));
+    el.src = URL.createObjectURL(file);
+  });
+  let out = '';
+  for (const [max, q] of [[1400, 0.8], [1200, 0.7], [1000, 0.6], [800, 0.5]]) {
+    const k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement('canvas');
+    c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    out = c.toDataURL('image/jpeg', q);
+    if (out.length <= 560000) break;
+  }
+  URL.revokeObjectURL(img.src);
+  if (out.length > 560000) throw new Error('Image trop lourde');
+  return out;
+}
+/* ----- Le book : ce que le public voit, et dans quel style ----- */
+async function editBook(g) {
+  const page = pageOf(g);
+  let tpl = tplOf(page)[0];
+  let accent = /^#[0-9a-f]{6}$/i.test(page.accent || '') ? page.accent : '';
+  const photos = await photosOf(g);
+  const dateRow = x => `<div class="dt-row">
+      <input class="field" type="date" data-dt="d" value="${esc(x.d || '')}">
+      <input class="field" data-dt="where" maxlength="90" autocomplete="off" placeholder="Salle, ville" value="${esc(x.where || '')}">
+      <input class="field" data-dt="url" maxlength="300" autocomplete="off" placeholder="Lien billetterie (facultatif)" value="${esc(x.url || '')}">
+      <button type="button" class="txt-btn danger" data-dt-del>retirer</button>
+    </div>`;
+  const v = await openSheet(`<h2>Le book de « ${esc(g.name)} »</h2>
+    <p class="sub">Ce que le public voit sur la page du groupe. Le nom, l'image, la description, le line-up et les liens viennent de la fiche.</p>
+
+    <h3 class="part">1 · Le style</h3>
+    <label class="label">Modèle</label>
+    <div class="tpls" id="kTpl">${TEMPLATES.map(t => `<button type="button" class="tpl" data-tpl="${t[0]}" style="--b:${t[2]};--t:${t[3]};--a:${t[4]}"><i></i><b>${t[1]}</b></button>`).join('')}</div>
+    <label class="label">Couleur</label>
+    <div class="swatches" id="kAccent"><button type="button" class="swatch auto" data-accent="" aria-label="Couleur du modèle" title="Couleur du modèle"></button>${PALETTE.map(c => `<button type="button" class="swatch" style="--c:${c}" data-accent="${c}" aria-label="Couleur ${c}"></button>`).join('')}</div>
+    <label class="label" for="kTagline">Phrase d'accroche</label>
+    <input class="field" id="kTagline" maxlength="120" autocomplete="off" placeholder="Ex : du rock à guitares, fort et mélodique" value="${esc(page.tagline || '')}">
+
+    <h3 class="part">2 · L'histoire</h3>
+    <label class="label" for="kBio">Biographie</label>
+    <textarea class="field band-field" id="kBio" maxlength="6000" placeholder="L'histoire du groupe : la rencontre, les influences, les sorties, les concerts marquants. Saute une ligne entre deux paragraphes.">${esc(page.bio || '')}</textarea>
+    <p class="hint">La description courte de la fiche reste en introduction, juste au-dessus.</p>
+
+    <h3 class="part">3 · Les photos</h3>
+    <p class="hint">Jusqu'à 8 photos, réduites automatiquement. La première s'affiche en grand. Elles sont enregistrées dès que tu les ajoutes.</p>
+    <div class="ph-grid" id="kPhotos"></div>
+    <button type="button" class="add-take" data-ph-add>+ ajouter des photos</button>
+    <input type="file" id="kFile" accept="image/*" multiple hidden>
+
+    <h3 class="part">4 · Vidéo et concerts</h3>
+    <label class="label" for="kVideo">Vidéo</label>
+    <input class="field" id="kVideo" maxlength="300" autocomplete="off" placeholder="Lien YouTube" value="${esc(page.video || '')}">
+    <label class="label">Dates de concert</label>
+    <div id="kDates">${datesOf(page).map(dateRow).join('')}</div>
+    <button type="button" class="add-take" data-dt-add>+ ajouter une date</button>
+
+    <h3 class="part">5 · Sur la page</h3>
+    <label class="check"><input type="checkbox" id="kLineup" ${page.lineup === false ? '' : 'checked'}><span>Afficher le line-up</span></label>
+    <label class="label" for="kBooking">E-mail de contact public</label>
+    <input class="field" id="kBooking" type="email" maxlength="120" autocomplete="off" placeholder="Facultatif : booking@exemple.fr" value="${esc(page.booking || '')}">
+    <p class="hint">Visible par tous sur la page. Laisse vide pour ne pas afficher de contact.</p>
+    <p class="band-acts"><button type="button" class="txt-btn accent" data-preview>voir l'aperçu</button></p>
+    <div class="row"><button class="btn" data-x>Annuler</button><button class="btn primary" data-ok>Enregistrer</button></div>`,
+  (sh, close) => {
+    const paintTpl = () => sh.querySelectorAll('.tpl').forEach(b => b.classList.toggle('on', b.dataset.tpl === tpl));
+    sh.querySelector('#kTpl').onclick = e => { const b = e.target.closest('.tpl'); if (b) { tpl = b.dataset.tpl; paintTpl(); } };
+    paintTpl();
+    const paintAccent = () => sh.querySelectorAll('#kAccent .swatch').forEach(b => b.classList.toggle('on', b.dataset.accent === accent));
+    sh.querySelector('#kAccent').onclick = e => { const b = e.target.closest('.swatch'); if (b) { accent = b.dataset.accent; paintAccent(); } };
+    paintAccent();
+    const grid = sh.querySelector('#kPhotos');
+    const paintPhotos = () => {
+      grid.innerHTML = photos.map(ph => `<figure><img src="${ph.data}" alt=""><button type="button" class="txt-btn danger" data-ph-del="${ph.id}">retirer</button></figure>`).join('');
+      sh.querySelector('[data-ph-add]').hidden = photos.length >= 8;
+    };
+    paintPhotos();
+    const file = sh.querySelector('#kFile');
+    sh.querySelector('[data-ph-add]').onclick = () => file.click();
+    file.onchange = async () => {
+      const files = [...file.files].slice(0, 8 - photos.length);
+      file.value = '';
+      for (const f of files) {
+        try {
+          const row = await S.store.addPhoto(g.id, await photoFrom(f), photos.reduce((m, x) => Math.max(m, x.position || 0), 0) + 1);
+          photos.push(row);
+          paintPhotos();
+        } catch (e) { fail(e, isNetErr(e) ? 'Il faut du réseau pour ajouter une photo' : 'Photo refusée'); break; }
+      }
+    };
+    grid.onclick = async e => {
+      const b = e.target.closest('[data-ph-del]');
+      if (!b) return;
+      b.disabled = true;
+      try { await S.store.deletePhoto(b.dataset.phDel); photos.splice(photos.findIndex(x => x.id === b.dataset.phDel), 1); paintPhotos(); }
+      catch (err) { b.disabled = false; fail(err, 'Retrait impossible'); }
+    };
+    const dates = sh.querySelector('#kDates');
+    sh.querySelector('[data-dt-add]').onclick = () => { dates.insertAdjacentHTML('beforeend', dateRow({})); dates.lastElementChild.querySelector('input').focus(); };
+    dates.onclick = e => { if (e.target.closest('[data-dt-del]')) e.target.closest('.dt-row').remove(); };
+    const val = id => (sh.querySelector('#' + id).value || '').replace(/\r\n?/g, '\n').trim();
+    const read = () => {
+      const out = {};
+      if (tpl !== 'studio') out.template = tpl;
+      if (accent) out.accent = accent;
+      for (const [k, id] of [['tagline', 'kTagline'], ['bio', 'kBio'], ['video', 'kVideo'], ['booking', 'kBooking']]) if (val(id)) out[k] = val(id);
+      if (!sh.querySelector('#kLineup').checked) out.lineup = false;
+      const list = [...dates.querySelectorAll('.dt-row')].map(r => Object.fromEntries([...r.querySelectorAll('[data-dt]')].map(i => [i.dataset.dt, i.value.trim()]))).filter(x => x.d && x.where);
+      if (list.length) out.dates = list.slice(0, 40).map(x => (x.url ? x : { d: x.d, where: x.where }));
+      return out;
+    };
+    sh.querySelector('[data-preview]').onclick = () => showBandPage({ ...publicView(g), page: read() }, true, photos.map(x => x.data));
+    sh.querySelector('[data-x]').onclick = () => close(null);
+    sh.querySelector('[data-ok]').onclick = () => close(read());
+  });
+  if (!v) return;
+  const before = g.profile;
+  const profile = { ...profOf(g) };
+  if (Object.keys(v).length) profile.page = v; else delete profile.page;
+  g.profile = profile;
+  render();
+  try { await S.store.saveGroupProfile(g.id, g.memo, g.cover, profile); toast(g.public_slug ? 'Book enregistré, la page est à jour' : 'Book enregistré'); }
+  catch (e) { g.profile = before; render(); fail(e, isNetErr(e) ? 'Il faut du réseau pour modifier le book' : 'Enregistrement impossible'); }
+}
 // Un visiteur arrive par l'adresse du groupe : il ne voit que la page, pas l'appli.
 async function openPublicPage(raw) {
   const slug = slugify(raw);
   showBandPage({ name: '', page: {} });
-  let b = null;
-  try { const cloud = new CloudStore(loadConfig()); await cloud.init(); b = slug ? await cloud.publicBand(slug) : null; } catch (e) { console.error(e); }
+  let b = null, cloud = null;
+  try { cloud = new CloudStore(loadConfig()); await cloud.init(); b = slug ? await cloud.publicBand(slug) : null; } catch (e) { console.error(e); }
   if (b && b.name) document.title = b.name;
   showBandPage(b && b.name ? b : null);
+  if (!b || !b.name) return;
+  // Les photos arrivent après le texte : la page s'affiche tout de suite.
+  try {
+    const gal = galleryHtml(await cloud.publicPhotos(slug));
+    const box = document.querySelector('#bandpage .bp-photos');
+    if (gal && box) { box.innerHTML = gal; box.hidden = false; }
+  } catch (e) { console.error(e); }
 }
 // Depuis la fiche du groupe : l'adresse à partager, son QR code, et l'aperçu.
 async function sharePage(g) {
@@ -845,7 +1029,7 @@ async function sharePage(g) {
     <div class="qr-big">${QR.svg(link)}</div><p class="qr-link">${esc(link.replace(/^https?:\/\//, ''))}</p>
     <div class="row"><button class="btn" data-see>Voir la page</button><button class="btn primary" data-copy>Copier le lien</button></div>`,
   (sh, close) => { sh.querySelector('[data-see]').onclick = () => close('see'); sh.querySelector('[data-copy]').onclick = () => close('copy'); });
-  if (v === 'see') showBandPage(publicView(g), true);
+  if (v === 'see') showBandPage(publicView(g), true, (await photosOf(g)).map(x => x.data));
   if (v === 'copy') { try { await navigator.clipboard.writeText(link); toast('Lien copié'); } catch { await promptText('Copie ce lien', link); } }
 }
 // Le lien du groupe : sa page publique si elle est ouverte, sinon le premier de la case « Liens ». C'est lui que le QR code ouvre.
@@ -3781,6 +3965,7 @@ function wireUi() {
     if (g && (e.target.closest('#bandNew') || band?.dataset.band === 'edit')) editBand(g);
     if (g && band?.dataset.band === 'rider') openRider(g);
     if (g && band?.dataset.band === 'page') sharePage(g);
+    if (g && band?.dataset.band === 'book') editBook(g);
     if (g && band?.dataset.band === 'fold' && !e.target.closest('a')) { if (!BAND_OPEN.delete(g.id)) BAND_OPEN.add(g.id); render(); }
   };
   $('#search').oninput = e => { S.filter.q = e.target.value; render(); };
