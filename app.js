@@ -167,6 +167,71 @@ const TAB_EMPTY = {
   rehearsal: 'Aucune répète pour l\'instant. Importe les fichiers de ton enregistreur avec « + nouvelle répète ».',
   albums: 'Aucun album pour l\'instant.',
 };
+/* Dossiers : un morceau est dans un seul dossier, ou dans aucun. Un dossier n'existe que par ses morceaux.
+   À l'écran c'est une colonne de CD : une tranche par dossier, on en tire une pour voir ce qu'elle contient. */
+const folderOf = i => (typeof i.folder === 'string' && i.folder.trim()) || '';
+const byName = (a, b) => a.localeCompare(b, 'fr', { sensitivity: 'base' });
+const foldersIn = tab => [...new Set(visibleIdeas().filter(i => inTab(i, tab)).map(folderOf).filter(Boolean))].sort(byName);
+const allFolders = () => [...new Set(visibleIdeas().filter(i => !albumOf(i) && stageOf(i) !== 'rehearsal').map(folderOf).filter(Boolean))].sort(byName);
+let FOLDER = ''; // la tranche tirée de la colonne
+const folderOn = () => !(isCloud() && S.ideas.length && !S.ideas.some(i => 'folder' in i));
+const folderReady = () => { if (!folderOn()) toast('Les dossiers ne sont pas encore activés sur le serveur'); return folderOn(); };
+function rackHtml(tab) {
+  const ideas = visibleIdeas().filter(i => inTab(i, tab));
+  const loose = ideas.filter(i => !folderOf(i)).length;
+  return `<div class="rack">${foldersIn(tab).map(n => {
+    const out = n === FOLDER;
+    return `<div class="spine ${out ? 'out' : ''}" data-folder="${esc(n)}">
+      <button class="spine-main" data-action="folder-open" data-folder="${esc(n)}" aria-expanded="${out}"><i></i><span>${esc(n)}</span><b>${ideas.filter(i => folderOf(i) === n).length}</b></button>
+      ${out ? `<button class="mini-btn" data-action="folder-menu" data-folder="${esc(n)}" aria-label="Options du dossier">${ICONS.more}</button>` : ''}
+    </div>`;
+  }).join('')}</div>
+  <p class="rack-now">${FOLDER ? `Dans « ${esc(FOLDER)} » <button class="txt-btn" data-action="folder-open" data-folder="${esc(FOLDER)}">ranger</button>` : loose ? 'Hors dossier' : 'Tout est rangé. Touche un dossier pour l\'ouvrir.'}</p>`;
+}
+async function setFolder(idea, name) {
+  if (!folderReady()) return;
+  const was = idea.folder;
+  idea.folder = name || null;
+  render();
+  try { await S.store.saveIdea(idea); toast(name ? `« ${ideaTitle(idea)} » est dans « ${name} »` : `« ${ideaTitle(idea)} » est sortie du dossier`); }
+  catch (e) { idea.folder = was; render(); fail(e, 'Rangement impossible'); }
+}
+// Choisir le dossier d'un morceau depuis son menu.
+async function pickFolder(idea) {
+  if (!folderReady()) return;
+  const cur = folderOf(idea);
+  const v = await actionSheet(`Dossier de « ${ideaTitle(idea)} »`, [
+    ...allFolders().filter(n => n !== cur).map(n => ({ label: n, value: 'f:' + n })),
+    { label: 'Nouveau dossier…', value: 'new', cls: 'primary' },
+    cur && { label: `Sortir de « ${cur} »`, value: 'none' },
+  ].filter(Boolean));
+  if (!v) return;
+  if (v === 'none') return setFolder(idea, '');
+  let name = v.slice(2);
+  if (v === 'new') {
+    name = ((await promptText('Nom du dossier', '', { placeholder: 'Ex : jazz, acoustique, live' })) || '').trim().slice(0, 40);
+    if (!name) return;
+    name = allFolders().find(n => byName(n, name) === 0) || name;
+  }
+  return setFolder(idea, name);
+}
+async function folderMenu(name) {
+  const list = visibleIdeas().filter(i => folderOf(i) === name);
+  const v = await actionSheet(`Dossier « ${name} »`, [
+    { label: 'Renommer', value: 'rename' },
+    { label: 'Défaire le dossier', value: 'undo', sub: 'Les morceaux sont gardés' },
+  ]);
+  if (!v || !folderReady()) return;
+  let to = null;
+  if (v === 'rename') {
+    to = ((await promptText('Nom du dossier', name)) || '').trim().slice(0, 40);
+    if (!to || to === name) return;
+  } else if (!(await confirmBox(`Défaire « ${name} » ?`, `${morceaux(list.length)} : rien n'est supprimé, ils retournent hors dossier.`, 'Défaire'))) return;
+  if (FOLDER === name) FOLDER = to || '';
+  try { for (const i of list) { i.folder = to; await S.store.saveIdea(i); } }
+  catch (e) { fail(e, 'Action impossible'); await reload(); }
+  render();
+}
 const morceaux = n => `${n} ${n > 1 ? 'morceaux' : 'morceau'}`;
 function hashOf(str) { let h = 7; for (const ch of String(str)) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return h; }
 const ideaColor = idea => (idea && idea.color) || PALETTE[hashOf(idea ? idea.id : '') % PALETTE.length];
@@ -253,7 +318,7 @@ function matchesIdea(idea) {
   for (const t of f.tags) if (!(idea.tags || []).includes(t)) return false;
   if (f.q) {
     const q = norm(f.q);
-    const hay = [idea.title, ideaTitle(idea), idea.notes, ...(idea.tags || []),
+    const hay = [idea.title, ideaTitle(idea), idea.notes, idea.folder, ...(idea.tags || []),
       ...takesOf(idea.id).flatMap(t => [t.title, t.notes])].map(norm).join(' ');
     if (!hay.includes(q)) return false;
   }
@@ -658,8 +723,12 @@ function render() {
   const byAlbum = tab === 'albums' && !searching;
   board.classList.toggle('albums-view', byAlbum);
   const blank = !visibleIdeas().length && !inboxTakes().length && tab === 'idea';
+  const racked = !byAlbum && !searching && !f.star && !f.tags.size && (tab === 'idea' || tab === 'compo') && foldersIn(tab).length > 0;
+  if (!racked || !foldersIn(tab).includes(FOLDER)) FOLDER = '';
+  board.classList.toggle('racked', racked);
   const body = byAlbum ? albumsHtml()
-    : recentIdeas().filter(i => searching || inTab(i, tab)).filter(matchesIdea).map(i => blockHtml(i, takesOf(i.id))).join('');
+    : recentIdeas().filter(i => searching || inTab(i, tab)).filter(i => !racked || folderOf(i) === FOLDER).filter(matchesIdea).map(i => blockHtml(i, takesOf(i.id))).join('');
+  if (racked) html += rackHtml(tab);
   html += body || (blank || html ? '' : `<p class="tab-empty">${searching || f.star || f.tags.size ? 'Rien ne correspond.' : TAB_EMPTY[tab]}</p>`);
   board.innerHTML = html;
   $('#empty').hidden = !blank;
@@ -964,6 +1033,7 @@ const ACT = {
   import: '<path d="M12 16V5M7 9l5-5 5 5M5 20h14"/>',
   delete: '<path d="M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13"/>',
   tags: '<path d="M9 4L7 20M17 4l-2 16M4.5 9h16M3.5 15h16"/>',
+  folder: '<path d="M4 5h16M4 9.5h16M4 14h16M4 18.5h16"/><path d="M7 3v17.5"/>',
   tempo: '<path d="M9 3h6l4 18H5zM12 15l5-9"/>',
   star: '<path d="M12 4l2.5 5.2 5.5.8-4 4 1 5.6-5-2.8-5 2.8 1-5.6-4-4 5.5-.8z"/>',
   share: '<circle cx="12" cy="8" r="3"/><path d="M6.5 20v-1.5a5.5 5.5 0 0111 0V20"/><circle cx="4.8" cy="10.5" r="2"/><circle cx="19.2" cy="10.5" r="2"/>',
@@ -1045,6 +1115,7 @@ function wireTagPicker(root, selected) {
 
 /* ---------------- Données : opérations ---------------- */
 function newIdea(fields = {}) {
+  if (!fields.folder) FOLDER = '';
   const t = nowIso();
   const idea = { id: uid(), title: '', tags: [], starred: false, notes: '', color: '', created_at: t, updated_at: t, ...fields };
   if (isCloud()) idea.group_id = S.scope === 'me' ? null : S.scope; // créée dans le groupe affiché
@@ -1058,7 +1129,7 @@ async function saveIdea(idea) {
 async function createSong(albumId = null) {
   const name = await promptText('Nom de la chanson', '', { placeholder: 'Ex : balade en La mineur' });
   if (!name) return;
-  const idea = newIdea({ title: name, ...(!albumId && tabNow() === 'compo' && stageReady() ? { stage: 'compo' } : {}) });
+  const idea = newIdea({ title: name, ...(!albumId && tabNow() === 'compo' && stageReady() ? { stage: 'compo' } : {}), ...(!albumId && FOLDER && folderOn() ? { folder: FOLDER } : {}) });
   if (albumId && albumById(albumId)) { idea.album_id = albumId; idea.track = nextTrack(albumId); S.openIdea = idea.id; }
   try { await saveIdea(idea); }
   catch (e) { S.ideas = S.ideas.filter(x => x !== idea); render(); return fail(e, 'Création impossible'); }
@@ -1238,6 +1309,7 @@ async function fileIdea(idea) {
 async function moveSong(id, target) {
   const idea = ideaById(id);
   if (!idea) return;
+  if (target.folder) return folderOf(idea) === target.folder ? undefined : setFolder(idea, target.folder);
   if (target.stage) { // posé sur un onglet
     if (target.stage === 'albums') return isCloud() ? fileIdea(idea) : undefined;
     const inAlbum = !!albumOf(idea);
@@ -2100,6 +2172,7 @@ async function ideaMenu(idea) {
     { label: 'Texte', value: 'notes', sub: 'Paroles, accords, notes' },
     { label: 'Tempo et tonalité', ico: '♩', value: 'tempo', sub: [idea.bpm ? `${idea.bpm} bpm` : '', idea.tona || '', (idea.chords || '').split('\n')[0].trim()].filter(Boolean).join(' · ') },
     stageOf(idea) !== 'rehearsal' && !albumOf(idea) && { label: stageOf(idea) === 'compo' ? 'Repasser en idée' : 'Passer en compo', value: 'stage', sub: stageOf(idea) === 'compo' ? 'Elle retourne dans Idées' : 'Elle est assez travaillée' },
+    stageOf(idea) !== 'rehearsal' && !albumOf(idea) && { label: 'Dossier', value: 'folder', sub: folderOf(idea) || 'Jazz, acoustique, live…' },
     albumOf(idea) && { label: 'Sortir de l\'album', value: 'out', sub: stageOf(idea) === 'idea' ? 'Vers Compos' : `Vers ${STAGES[stageOf(idea)][1]}` },
     isCloud() && !group && S.groups.length && isMine(idea) && { label: 'Partager', value: 'share', sub: 'Avec un groupe' },
     group && isMine(idea) && { label: 'Reprendre', value: 'unshare', sub: `La retirer de « ${group.name} »` },
@@ -2115,6 +2188,7 @@ async function ideaMenu(idea) {
     if (v === 'export') return exportIdea(idea);
     if (v === 'import') return pickImport(idea.id);
     if (v === 'album') return fileIdea(idea);
+    if (v === 'folder') return pickFolder(idea);
     if (v === 'star') { idea.starred = !idea.starred; render(); return S.store.saveIdea(idea); }
     if (v === 'out') {
       const was = { album_id: idea.album_id, track: idea.track, stage: idea.stage };
@@ -2905,6 +2979,8 @@ function moveDrag(x, y) {
     $('#tabs').classList.add('drop-ready');
     const tab = under && under.closest('.tab[data-tab]');
     if (tab) { tab.classList.add('drop-hover'); DRAG.target = { album: 'none', stage: tab.dataset.tab }; return; }
+    const spine = under && under.closest('.spine');
+    if (spine) { spine.classList.add('drop-hover'); DRAG.target = { folder: spine.dataset.folder }; return; }
     const sec = under && under.closest('[data-album]');
     if (!sec) return;
     sec.classList.add('drop-hover');
@@ -3476,6 +3552,8 @@ function wireUi() {
     const a = el.dataset.action;
     const idea = ideaById(el.dataset.idea);
     const albumId = el.dataset.albumId;
+    if (a === 'folder-open') { FOLDER = FOLDER === el.dataset.folder ? '' : el.dataset.folder; render(); }
+    if (a === 'folder-menu') folderMenu(el.dataset.folder);
     if (a === 'album-toggle') { if (!ALB_OPEN.delete(albumId)) ALB_OPEN.add(albumId); else if (tracksOf(albumId === 'none' ? null : albumId).some(i => i.id === S.openIdea)) S.openIdea = null; saveAlbOpen(); render(); }
     const set = setById(el.dataset.set);
     if (set) {

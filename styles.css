@@ -915,3 +915,24 @@ body.dragging { -webkit-user-select: none; user-select: none; }
 .grip svg { stroke-width: 1.5; }
 .grip .nubs circle { fill: currentColor; stroke: none; }
 .block:has(.take.is-playing) .grip .nubs circle { fill: var(--bg); }
+
+/* ---------- Dossiers : une colonne de CD, une tranche par dossier ---------- */
+.rack { column-span: all; max-width: 560px; margin: 0 0 14px; padding: 5px 5px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); display: flex; flex-direction: column; gap: 2px; }
+.spine { display: flex; align-items: stretch; border-radius: 2px; background: var(--soft); box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text) 9%, transparent), inset 0 -1px 0 rgba(0, 0, 0, .5); transition: transform .18s cubic-bezier(.3, 1.3, .5, 1), margin .18s; }
+.spine-main { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 12px; height: 34px; padding: 0 12px 0 0; text-align: left; cursor: pointer; color: var(--muted); font: 500 12.5px var(--mono); letter-spacing: .09em; text-transform: uppercase; }
+/* la charnière du boîtier */
+.spine-main i { flex: none; align-self: stretch; width: 15px; border-right: 1px solid var(--line); border-radius: 2px 0 0 2px; background: repeating-linear-gradient(180deg, transparent 0 5px, color-mix(in srgb, var(--text) 13%, transparent) 5px 6px), var(--bg); }
+.spine-main span { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.spine-main b { flex: none; font-weight: 400; letter-spacing: 0; color: var(--dim); }
+.spine:hover .spine-main { color: var(--text); }
+.spine .mini-btn { flex: none; align-self: center; margin-right: 4px; }
+.spine.out { transform: translateX(14px); margin-right: 14px; background: color-mix(in srgb, var(--accent) 16%, var(--soft)); box-shadow: inset 0 0 0 1px var(--accent), 0 4px 14px rgba(0, 0, 0, .45); }
+.spine.out .spine-main { color: var(--text); }
+.spine.out .spine-main i { background: var(--accent); border-right-color: var(--accent); }
+.spine.out .spine-main b { color: var(--text); }
+.spine.drop-hover { background: color-mix(in srgb, var(--accent) 30%, var(--bg)); box-shadow: inset 0 0 0 2px var(--accent); }
+body.dragging .spine:not(.out) { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent); }
+.rack-now { column-span: all; display: flex; align-items: baseline; gap: 12px; margin: 0 0 16px; font: 12.5px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
+.rack-now .txt-btn { text-transform: none; letter-spacing: 0; }
+@media (max-width: 520px) { .spine-main { height: 38px; } }
+@media (prefers-reduced-motion: reduce) { .spine { transition: none; } }
