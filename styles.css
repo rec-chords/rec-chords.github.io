@@ -909,3 +909,9 @@ body.dragging { -webkit-user-select: none; user-select: none; }
 .grip:active { transform: rotate(-12deg) scale(1.08); }
 .block:has(.take.is-playing) .grip { background-image: none; color: var(--accent); filter: drop-shadow(0 0 5px var(--accent)); }
 .block:has(.take.is-playing) .grip svg { fill: currentColor; }
+
+/* Le médiator porte les points de prise : on voit qu'il s'attrape */
+.grip { width: 23px; height: 25px; margin: 3px -6px 0 -4px; }
+.grip svg { stroke-width: 1.5; }
+.grip .nubs circle { fill: currentColor; stroke: none; }
+.block:has(.take.is-playing) .grip .nubs circle { fill: var(--bg); }

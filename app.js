@@ -339,7 +339,7 @@ function blockHtml(idea, list, full = false) {
   const open = full || (long && UNFOLDED.has(idea.id));
   return `<section class="block ${full ? 'in-album' : ''}" data-drop="${idea.id}">
     <div class="block-head">
-      <span class="grip" title="Glisser vers un onglet" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 21.5c-1.2 0-2.2-.8-3.2-2.3C6.6 16 4 11.6 4 8.2 4 4.9 7.3 3 12 3s8 1.9 8 5.2c0 3.4-2.6 7.8-4.8 11-1 1.500-2 2.3-3.2 2.3z"/></svg></span>
+      <span class="grip" title="Glisser vers un onglet" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 21.5c-1.2 0-2.2-.8-3.2-2.3C6.6 16 4 11.6 4 8.2 4 4.9 7.3 3 12 3s8 1.9 8 5.2c0 3.4-2.6 7.8-4.8 11-1 1.5-2 2.3-3.2 2.3z"/><g class="nubs"><circle cx="8.6" cy="8" r="1.15"/><circle cx="12" cy="8" r="1.15"/><circle cx="15.4" cy="8" r="1.15"/><circle cx="10.3" cy="11.6" r="1.15"/><circle cx="13.7" cy="11.6" r="1.15"/><circle cx="12" cy="15.2" r="1.15"/></g></svg></span>
       <h3 class="block-title ${idea.title ? '' : 'placeholder'}" data-action="rename" data-idea="${idea.id}">${esc(ideaTitle(idea))}</h3>
       <button class="star ${idea.starred ? 'on' : ''}" data-action="star" data-idea="${idea.id}" aria-label="Favori">${idea.starred ? '★' : '☆'}</button>
       ${list.filter(t => !baseOf(t) && !superseded(t)).length > 1 ? `<button class="txt-btn" data-action="play-all" data-idea="${idea.id}">écouter</button>` : ''}
