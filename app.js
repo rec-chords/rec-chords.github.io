@@ -568,6 +568,7 @@ async function editBand(g) {
     ${inp('b_phone', 'Téléphone', '06…', 40)}
     ${inp('b_mail', 'E-mail', 'groupe@exemple.fr', 120)}
     ${area('b_links', 'Liens', 'Un lien par ligne : Bandcamp, Insta, YouTube…', p.links)}
+    <p class="hint">Le premier lien devient le QR code de la fiche technique.</p>
     <div class="row"><button class="btn" data-x>Annuler</button><button class="btn primary" data-ok>Enregistrer</button></div>`,
   (sh, close) => {
     const file = sh.querySelector('#bFile');
@@ -606,6 +607,150 @@ async function editBand(g) {
   catch (e) { Object.assign(g, before); render(); fail(e, isNetErr(e) ? 'Il faut du réseau pour modifier la fiche du groupe' : 'Enregistrement impossible'); }
 }
 
+/* ---------------- QR code ---------------- */
+// Petit encodeur sans dépendance : octets, versions 1 à 6 (jusqu'à 134 caractères), correction M si ça tient, sinon L.
+const QR = (() => {
+  const EXP = new Uint8Array(512), LOG = new Uint8Array(256);
+  for (let i = 0, x = 1; i < 255; i++) { EXP[i] = x; LOG[x] = i; x <<= 1; if (x & 256) x ^= 0x11d; }
+  for (let i = 255; i < 512; i++) EXP[i] = EXP[i - 255];
+  const mul = (a, b) => (a && b ? EXP[LOG[a] + LOG[b]] : 0);
+  const rs = (data, n) => {
+    let gen = [1];
+    for (let i = 0; i < n; i++) { const next = new Array(gen.length + 1).fill(0); gen.forEach((c, j) => { next[j] ^= c; next[j + 1] ^= mul(c, EXP[i]); }); gen = next; }
+    const rem = new Array(n).fill(0);
+    for (const d of data) { const f = d ^ rem.shift(); rem.push(0); for (let j = 0; j < n; j++) rem[j] ^= mul(gen[j + 1], f); }
+    return rem;
+  };
+  // [octets de données, octets de correction par bloc, nombre de blocs] pour les versions 1 à 6
+  const TABLE = { M: [[16, 10, 1], [28, 16, 1], [44, 26, 1], [64, 18, 2], [86, 24, 2], [108, 16, 4]], L: [[19, 7, 1], [34, 10, 1], [55, 15, 1], [80, 20, 1], [108, 26, 1], [136, 18, 2]] };
+  const MASKS = [(r, c) => (r + c) % 2 === 0, r => r % 2 === 0, (r, c) => c % 3 === 0, (r, c) => (r + c) % 3 === 0,
+    (r, c) => ((r >> 1) + Math.floor(c / 3)) % 2 === 0, (r, c) => (r * c) % 2 + (r * c) % 3 === 0,
+    (r, c) => ((r * c) % 2 + (r * c) % 3) % 2 === 0, (r, c) => ((r + c) % 2 + (r * c) % 3) % 2 === 0];
+  const formatBits = (level, mask) => {
+    const data = ((level === 'L' ? 1 : 0) << 3) | mask;
+    let rem = data << 10;
+    for (let i = 14; i >= 10; i--) if ((rem >> i) & 1) rem ^= 0x537 << (i - 10);
+    return ((data << 10) | rem) ^ 0x5412;
+  };
+  const penalty = m => {
+    const n = m.length;
+    let p = 0, dark = 0;
+    const line = get => {
+      for (let a = 0; a < n; a++) {
+        let run = 1;
+        for (let b = 1; b <= n; b++) {
+          if (b < n && get(a, b) === get(a, b - 1)) run++;
+          else { if (run >= 5) p += run - 2; run = 1; }
+        }
+        for (let b = 0; b + 10 < n; b++) {
+          const s = [];
+          for (let k = 0; k < 11; k++) s.push(get(a, b + k) ? 1 : 0);
+          const t = s.join('');
+          if (t === '10111010000' || t === '00001011101') p += 40;
+        }
+      }
+    };
+    line((a, b) => m[a][b]);
+    line((a, b) => m[b][a]);
+    for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) {
+      if (m[r][c]) dark++;
+      if (r + 1 < n && c + 1 < n && m[r][c] === m[r][c + 1] && m[r][c] === m[r + 1][c] && m[r][c] === m[r + 1][c + 1]) p += 3;
+    }
+    return p + Math.floor(Math.abs(dark * 100 / (n * n) - 50) / 5) * 10;
+  };
+  function matrix(text) {
+    const bytes = [...new TextEncoder().encode(text)];
+    let level = null, v = 0;
+    for (const l of ['M', 'L']) { v = TABLE[l].findIndex(t => bytes.length <= t[0] - 2) + 1; if (v) { level = l; break; } }
+    if (!level) return null;
+    const [dataLen, ecLen, blocks] = TABLE[level][v - 1];
+    const bits = [];
+    const put = (val, len) => { for (let i = len - 1; i >= 0; i--) bits.push((val >> i) & 1); };
+    put(4, 4); put(bytes.length, 8); bytes.forEach(b => put(b, 8));
+    put(0, Math.min(4, dataLen * 8 - bits.length));
+    while (bits.length % 8) bits.push(0);
+    const data = [];
+    for (let i = 0; i < bits.length; i += 8) data.push(bits.slice(i, i + 8).reduce((a, b) => (a << 1) | b, 0));
+    for (let pad = 0xec; data.length < dataLen; pad ^= 0xec ^ 0x11) data.push(pad);
+    const per = dataLen / blocks;
+    const parts = Array.from({ length: blocks }, (_, i) => data.slice(i * per, (i + 1) * per));
+    const ecs = parts.map(d => rs(d, ecLen));
+    const cw = [];
+    for (let i = 0; i < per; i++) parts.forEach(d => cw.push(d[i]));
+    for (let i = 0; i < ecLen; i++) ecs.forEach(e => cw.push(e[i]));
+
+    const n = 17 + 4 * v;
+    const m = Array.from({ length: n }, () => new Array(n).fill(false));
+    const res = Array.from({ length: n }, () => new Array(n).fill(false));
+    const set = (r, c, on) => { if (r >= 0 && r < n && c >= 0 && c < n) { m[r][c] = !!on; res[r][c] = true; } };
+    const finder = (r0, c0) => {
+      for (let dr = -1; dr <= 7; dr++) for (let dc = -1; dc <= 7; dc++) {
+        const inside = dr >= 0 && dr <= 6 && dc >= 0 && dc <= 6;
+        set(r0 + dr, c0 + dc, inside && (dr === 0 || dr === 6 || dc === 0 || dc === 6 || (dr >= 2 && dr <= 4 && dc >= 2 && dc <= 4)));
+      }
+    };
+    finder(0, 0); finder(0, n - 7); finder(n - 7, 0);
+    if (v >= 2) for (let dr = -2; dr <= 2; dr++) for (let dc = -2; dc <= 2; dc++) set(n - 7 + dr, n - 7 + dc, Math.max(Math.abs(dr), Math.abs(dc)) !== 1);
+    for (let i = 8; i < n - 8; i++) { set(6, i, i % 2 === 0); set(i, 6, i % 2 === 0); }
+    const format = f => {
+      const bit = i => (f >> i) & 1;
+      for (let i = 0; i <= 5; i++) set(i, 8, bit(i));
+      set(7, 8, bit(6)); set(8, 8, bit(7)); set(8, 7, bit(8));
+      for (let i = 9; i < 15; i++) set(8, 14 - i, bit(i));
+      for (let i = 0; i < 8; i++) set(8, n - 1 - i, bit(i));
+      for (let i = 8; i < 15; i++) set(n - 15 + i, 8, bit(i));
+      set(n - 8, 8, true);
+    };
+    format(0); // réserve la place avant de poser les données
+    let k = 0, up = true;
+    for (let c = n - 1; c > 0; c -= 2) {
+      if (c === 6) c--;
+      for (let j = 0; j < n; j++) {
+        const r = up ? n - 1 - j : j;
+        for (const cc of [c, c - 1]) if (!res[r][cc]) { m[r][cc] = k < cw.length * 8 && ((cw[k >> 3] >> (7 - (k & 7))) & 1) === 1; k++; }
+      }
+      up = !up;
+    }
+    let best = null;
+    for (let mask = 0; mask < 8; mask++) {
+      const t = m.map((row, r) => row.map((x, c) => (res[r][c] ? x : x !== MASKS[mask](r, c))));
+      const keep = m.map(row => row.slice());
+      for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) m[r][c] = t[r][c];
+      format(formatBits(level, mask));
+      const out = m.map(row => row.slice());
+      const score = penalty(out);
+      for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) m[r][c] = keep[r][c];
+      if (!best || score < best.score) best = { score, out };
+    }
+    return best.out;
+  }
+  // Toujours noir sur blanc, avec sa marge : c'est ce que les téléphones lisent le mieux.
+  function svg(text) {
+    const m = matrix(text);
+    if (!m) return '';
+    const n = m.length;
+    let d = '';
+    m.forEach((row, r) => row.forEach((on, c) => { if (on) d += `M${c + 4} ${r + 4}h1v1h-1z`; }));
+    return `<svg class="qr" viewBox="0 0 ${n + 8} ${n + 8}" shape-rendering="crispEdges" role="img" aria-label="QR code"><rect width="100%" height="100%" fill="#fff"/><path d="${d}" fill="#000"/></svg>`;
+  }
+  return { matrix, svg };
+})();
+// Le lien du groupe : le premier de la case « Liens » de sa fiche. C'est lui que le QR code ouvre.
+const bandLink = g => {
+  for (const w of String(profOf(g).links || '').split(/\s+/)) {
+    if (/^https?:\/\/\S+\.\S+/i.test(w)) return w;
+    if (/^[\w-]+(\.[\w-]+)+(\/\S*)?$/.test(w) && !w.includes('@')) return 'https://' + w;
+  }
+  return '';
+};
+const linkLabel = u => u.replace(/^https?:\/\/(www\.)?/i, '').replace(/\/$/, '');
+function showQr(g) {
+  const link = bandLink(g);
+  return openSheet(`<h2>${esc(g.name)}</h2><p class="sub">À scanner avec l'appareil photo d'un téléphone.</p>
+    <div class="qr-big">${QR.svg(link)}</div><p class="qr-link">${esc(linkLabel(link))}</p>
+    <div class="row"><button class="btn primary" data-x>Fermer</button></div>`,
+  (sh, close) => { sh.querySelector('[data-x]').onclick = () => close(null); });
+}
 /* ----- Fiche technique : une page propre à imprimer ou à envoyer ----- */
 let RIDER_ON = false;
 function riderText(g) {
@@ -637,6 +782,8 @@ function openRider(g) {
   const part = (title, body) => (body ? `<h2>${title}</h2><p class="rider-text">${esc(body)}</p>` : '');
   const contact = [p.contact, p.phone, p.mail].filter(Boolean).join(' · ');
   const thin = !lineup.some(m => m.needs) && !p.needs && !p.brings;
+  const link = bandLink(g);
+  const qr = link ? QR.svg(link) : '';
   el.innerHTML = `<div class="rider-bar">
       <button class="txt-btn accent" data-print>imprimer ou PDF</button>
       <button class="txt-btn" data-copy>copier le texte</button>
@@ -657,10 +804,11 @@ function openRider(g) {
         ${lineup.map((m, n) => `<li><span class="n">${String(n + 1).padStart(2, '0')}</span><b>${esc(m.name || '')}</b><span class="plays">${esc(m.inst || '')}</span><span class="needs">${esc(m.needs || '')}</span></li>`).join('')}</ol>` : ''}
       ${p.brings || p.needs ? `<div class="rider-cols">${p.brings ? `<section>${part('Le groupe apporte', p.brings)}</section>` : ''}${p.needs ? `<section>${part('À fournir par la salle', p.needs)}</section>` : ''}</div>` : ''}
       ${part('Remarques', p.notes)}
-      ${contact || p.links ? `<footer class="rider-contact"><h2>Contact</h2>
+      ${contact || p.links ? `<footer class="rider-contact ${qr ? 'has-qr' : ''}"><div><h2>Contact</h2>
         ${p.contact ? `<p class="who">${esc(p.contact)}</p>` : ''}
         ${p.phone || p.mail ? `<p class="rider-text">${esc([p.phone, p.mail].filter(Boolean).join(' · '))}</p>` : ''}
-        ${p.links ? `<p class="rider-text links">${esc(p.links)}</p>` : ''}</footer>` : ''}
+        ${p.links ? `<p class="rider-text links">${esc(p.links)}</p>` : ''}</div>
+        ${qr ? `<button class="rider-qr" data-qr title="Afficher en grand">${qr}<span>${esc(linkLabel(link))}</span></button>` : ''}</footer>` : ''}
       <p class="rider-foot">Fiche du ${new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
     </article>`;
   const paintLight = () => {
@@ -674,6 +822,7 @@ function openRider(g) {
     const b = e.target.closest('button');
     if (!b) return;
     if (b.hasAttribute('data-close')) closeRider();
+    if (b.hasAttribute('data-qr')) showQr(g);
     if (b.hasAttribute('data-print')) window.print();
     if (b.hasAttribute('data-light')) { try { localStorage.setItem('fredon.riderLight', el.classList.contains('light') ? '0' : '1'); } catch {} paintLight(); }
     if (b.hasAttribute('data-edit')) { closeRider(); editBand(g); }
