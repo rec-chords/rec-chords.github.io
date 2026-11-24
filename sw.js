@@ -1,6 +1,6 @@
 // Service worker minimal : rend l'appli installable et l'ouvre même sans réseau.
 // Réseau d'abord (pour toujours avoir la dernière version), cache en secours.
-const CACHE = 'fredon-v59';
+const CACHE = 'fredon-v60';
 const LIB = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js';
 const SHELL = ['./', 'index.html', 'styles.css', 'store.js', 'app.js', 'manifest.webmanifest', 'icon.svg', 'icon-192.png'];
 

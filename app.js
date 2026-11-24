@@ -3017,12 +3017,17 @@ async function inviteWelcome() {
         <label class="label" for="iPass">${mode === 'signup' ? 'Choisis un mot de passe' : 'Ton mot de passe'}</label>
         <input class="field" id="iPass" type="password" autocomplete="${mode === 'signup' ? 'new-password' : 'current-password'}">
         ${mode === 'signup' ? '<p class="hint">8 caractères ou plus.</p>' : ''}`}
+        ${mode === 'signup' ? '<label class="label">Apparence</label><div class="seg"><button type="button" data-theme-pick="dark">Sombre</button><button type="button" data-theme-pick="light">Clair</button></div><p class="hint">Ça se change à tout moment dans les réglages.</p>' : ''}
         <button class="btn primary wide" data-go>${mode === 'signup' ? "S'inscrire et rejoindre le groupe" : mode === 'login' ? 'Me connecter et rejoindre le groupe' : 'Rejoindre le groupe'}</button>
         <div class="invite-foot">
           ${mode === 'join' ? '' : `<button class="txt-btn accent" data-swap>${mode === 'signup' ? "J'ai déjà un compte" : 'Je n\'ai pas encore de compte'}</button>`}
           <button class="txt-btn" data-later>plus tard</button>
         </div>`;
       const swap = root.querySelector('[data-swap]');
+      const themeBtns = root.querySelectorAll('[data-theme-pick]');
+      const showTheme = () => themeBtns.forEach(b => b.classList.toggle('on', b.dataset.themePick === currentTheme()));
+      themeBtns.forEach(b => { b.onclick = () => { setTheme(b.dataset.themePick); showTheme(); }; });
+      showTheme();
       if (swap) swap.onclick = () => { mode = mode === 'signup' ? 'login' : 'signup'; draw(); };
       root.querySelector('[data-later]').onclick = () => close('later');
       const go = root.querySelector('[data-go]');
