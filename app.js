@@ -180,7 +180,7 @@ function rackHtml(tab, body) {
   const ideas = visibleIdeas().filter(i => inTab(i, tab));
   const loose = ideas.filter(i => !folderOf(i)).length;
   const count = n => ideas.filter(i => folderOf(i) === n).length;
-  const shelf = `<div class="rack"><div class="rack-row">${foldersIn(tab).map(n => `<button class="spine ${n === FOLDER ? 'out' : ''}" data-action="folder-open" data-folder="${esc(n)}" aria-expanded="${n === FOLDER}" title="${esc(n)}"><i></i><span>${esc(n)}</span><b>${count(n)}</b></button>`).join('')}</div></div>`;
+  const shelf = `<div class="rack"><div class="rack-row">${foldersIn(tab).map(n => `<button class="spine ${n === FOLDER ? 'out' : ''}" data-action="folder-open" data-folder="${esc(n)}" aria-expanded="${n === FOLDER}" title="${esc(n)}"><span>${esc(n)}</span><b>${count(n)}</b><i></i></button>`).join('')}</div></div>`;
   if (!FOLDER) return `${shelf}<p class="rack-now">${loose ? 'Hors dossier' : 'Tout est rangé. Touche un disque pour l\'ouvrir.'}</p>${body}`;
   // Le dossier ouvert : un boîtier posé sous l'étagère, ses morceaux à l'intérieur.
   return `${shelf}<section class="case">
