@@ -39,3 +39,19 @@ language sql stable security definer set search_path = public as $$
 $$;
 revoke execute on function public.public_photos(text) from public;
 grant execute on function public.public_photos(text) to anon, authenticated;
+
+-- La première photo, seule : l'ouverture de la page s'affiche sans attendre les sept autres.
+create or replace function public.public_hero(slug text) returns text
+language sql stable security definer set search_path = public as $$
+  select p.data
+  from group_photos p join groups g on g.id = p.group_id
+  where slug is not null and trim(slug) <> '' and g.public_slug = lower(trim(slug))
+  order by p.position, p.created_at limit 1;
+$$;
+revoke execute on function public.public_hero(text) from public;
+grant execute on function public.public_hero(text) to anon, authenticated;
+
+-- Une photo est une image encodée du début à la fin, rien d'autre (la première règle ne vérifiait que le début).
+alter table public.group_photos drop constraint if exists group_photos_data_check;
+alter table public.group_photos add constraint group_photos_data_check
+  check (char_length(data) <= 600000 and data ~ '^data:image/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$');

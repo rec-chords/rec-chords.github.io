@@ -24,7 +24,8 @@ grant execute on function public.set_group_public(uuid, text) to authenticated;
 
 -- Ce que tout le monde peut lire, et seulement pour un groupe qui a ouvert sa page :
 -- nom, image, description, style, ville, line-up (prénom et instrument), liens, réglages de la page.
--- Jamais le téléphone, l'e-mail, le contact, la technique, ni aucun enregistrement.
+-- Jamais le téléphone, l'e-mail, le contact ni la technique. Les seuls enregistrements écoutables sont ceux que le groupe
+-- a choisis dans son book (voir supabase-ecoute.sql).
 create or replace function public.public_band(slug text) returns json
 language sql stable security definer set search_path = public as $$
   select json_build_object(

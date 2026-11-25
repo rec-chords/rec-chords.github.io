@@ -571,7 +571,7 @@ async function editBand(g) {
     <p class="hint">Le QR code de la fiche technique ouvre la page publique si elle est activée, sinon le premier lien.</p>
 
     <h3 class="part">5 · Page publique</h3>
-    <p class="hint">Une page de présentation visible par tous, sans compte : image, description, line-up et liens. Jamais le téléphone, l'e-mail, la technique ni les enregistrements.</p>
+    <p class="hint">Une page de présentation visible par tous, sans compte : image, description, line-up, liens, et les morceaux choisis dans le book${(Array.isArray(pageOf(g).tracks) ? pageOf(g).tracks : []).length ? ` (${(pageOf(g).tracks).length} en ce moment, écoutables par tous dès que la page est activée)` : ''}. Jamais le téléphone, l'e-mail, la technique ni les autres enregistrements.</p>
     ${isAdmin(g.id) ? `<label class="check"><input type="checkbox" id="bPub" ${g.public_slug ? 'checked' : ''}><span>Activer la page publique</span></label>
     <div id="bPubBox"><label class="label" for="bSlug">Adresse de la page</label>
       <div class="slug-row"><span>${esc(location.host)}/?groupe=</span><input class="field" id="bSlug" maxlength="40" autocomplete="off" autocapitalize="none" spellcheck="false" value="${esc(g.public_slug || slugify(g.name))}"></div></div>`
@@ -779,7 +779,7 @@ const linkRows = text => String(text || '').split('\n').map(line => {
   return { url, label: said || (NETWORKS.find(([k]) => host.includes(k)) || [])[1] || host.split('/')[0], sub: url.replace(/^https?:\/\/(www\.)?/i, '').replace(/\/$/, '') };
 }).filter(Boolean);
 // Ce que la page montre : la même forme que ce que le serveur renvoie au public.
-const publicView = g => { const p = profOf(g); return { name: g.name, cover: g.cover, memo: g.memo, style: p.style, city: p.city, links: p.links, page: pageOf(g), lineup: lineupOf(g).map(m => ({ name: m.name, inst: m.inst })) }; };
+const publicView = g => { const p = profOf(g); return { name: g.name, slug: g.public_slug || '', cover: g.cover, memo: g.memo, style: p.style, city: p.city, links: p.links, page: pageOf(g), lineup: lineupOf(g).map(m => ({ name: m.name, inst: m.inst })) }; };
 // Les modèles : [clé, nom, fond, texte, accent, polices Google]. « studio » est le modèle de Rec.
 const TEMPLATES = [
   ['studio', 'Studio', '#0b0b0d', '#f1f1f3', '#7c6cf6', ''],
@@ -802,62 +802,110 @@ function loadTplFont(tpl) {
 }
 const youtubeId = u => (String(u || '').match(/(?:youtu\.be\/|[?&]v=|\/embed\/|\/shorts\/|\/live\/)([\w-]{11})/) || [])[1] || '';
 const datesOf = page => (Array.isArray(page && page.dates) ? page.dates : []).filter(x => x && /^\d{4}-\d{2}-\d{2}$/.test(x.d || '') && x.where).sort((x, y) => x.d.localeCompare(y.d));
-const today = () => { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`; };
+// Le « jour de scène » : un concert ne bascule pas au lendemain à minuit, on décale de cinq heures.
+const today = () => { const n = new Date(Date.now() - 5 * 3600e3); return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`; };
 const paras = text => esc(text).split(/\n{2,}/).map(x => `<p>${x.replace(/\n/g, '<br>')}</p>`).join('');
-// La page est composée comme le site du groupe : une ouverture plein écran, un bandeau défilant, un menu, puis des rubriques numérotées.
-// Tous les blocs partagent le même cadre (.bp-panel).
-function bandPageHtml(b, photos) {
+/* La page est composée comme le site du groupe : une ouverture plein écran, un bandeau défilant, un menu, des rubriques numérotées, une fin.
+   Tous les blocs partagent le même cadre (.bp-panel) ; un modèle ne règle que des variables.
+   L'état de la page ouverte vit ici, hors du HTML : un nouveau rendu ne coupe ni la musique ni le lecteur. */
+const BP = { b: null, o: {}, audio: null, cur: null, idx: -1, deck: null, raf: 0, level: 0, io: null, spy: null, after: false, wait: false, lock: false, swiped: 0, theme0: null, nextLabel: '' };
+const trackLen = t => Math.max(0, cutOut(t) - cutIn(t));
+const trackEnd = (t, a) => cutOut(t, a && isFinite(a.duration) && a.duration > 0 ? a.duration : (t.duration || 1e9));
+const canPlay = t => { try { const a = document.createElement('audio'); const m = String(t.mime || ''); return !m || !!a.canPlayType(m) || !!a.canPlayType(m.split(';')[0]); } catch { return true; } };
+// Le carnet ouvert au public : sous chaque morceau, d'où vient la prise.
+const trackNote = t => { const d = t.date ? new Date(t.date) : null; return d && !isNaN(d) ? `${t.stage === 'rehearsal' ? 'Prise en répète' : 'Prise'} du ${d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}` : ''; };
+// Ce que la page d'un groupe montre de ses morceaux, côté membre (pour l'aperçu) : la même forme que le serveur.
+const tracksView = (g, list) => (Array.isArray(list) ? list : []).map(x => {
+  const t = x && takeById(x.take), i = t && ideaById(t.idea_id);
+  return t && i && i.group_id === g.id && t.path ? { id: t.id, title: String(x.title || '').trim() || ideaTitle(i), duration: t.duration, peaks: t.peaks, trim_a: t.trim_a, trim_b: t.trim_b, path: t.path, mime: t.mime, date: t.created_at, stage: i.stage } : null;
+}).filter(Boolean);
+const signMine = t => S.store.audioUrl(takeById(t.id));
+// Où en est le groupe dans son calendrier : ce soir, bientôt, hier soir.
+function bandMoment(page, forceLive) {
+  const dates = datesOf(page);
+  let now = today();
+  if (forceLive) { const up = dates.find(x => x.d >= now); if (up) now = up.d; } // aperçu « soir de concert »
+  const gap = (x, y) => Math.round((new Date(x + 'T12:00:00') - new Date(y + 'T12:00:00')) / 864e5);
+  const next = dates.filter(x => x.d >= now);
+  const past = dates.filter(x => x.d < now).reverse();
+  const wait = next[0] ? gap(next[0].d, now) : -1;
+  const soon = wait === 0 ? 'Ce soir' : wait === 1 ? 'Demain' : wait > 1 ? `Dans ${wait} jours` : '';
+  const head = wait >= 0 && wait <= 7 ? [soon, next[0].where] : past[0] && gap(now, past[0].d) === 1 ? ['Hier soir', past[0].where] : null;
+  const day = x => new Date(x.d + 'T12:00:00');
+  const label = next[0] ? `${day(next[0]).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })} · ${next[0].where}` : '';
+  return { next, past: past.slice(0, 6), wait, soon, live: wait === 0, head, day, label };
+}
+function bandState() {
+  const b = BP.b || {}, o = BP.o, page = b.page && typeof b.page === 'object' ? b.page : {};
+  const photos = o.photos || [];
+  return { m: bandMoment(page, o.live), photos, hero: photos[0] || (isCover(o.hero) ? o.hero : ''), tiny: !o.noPhoto && isCover(page.tiny) ? page.tiny : '', tracks: o.tracks || [], link: o.link || '' };
+}
+const bandCtaHtml = st => {
+  const first = st.tracks.findIndex(canPlay);
+  return (first >= 0 ? `<button type="button" class="bp-listen" data-trk="${first}"><i></i><span>Écouter</span><em>${esc(st.tracks[first].title)} · ${fmtDur(trackLen(st.tracks[first]))}</em></button>` : '') +
+    (st.m.live ? '<button type="button" class="bp-listen" data-glow><i></i><span>Lumière</span></button>' : '');
+};
+function bandHeroHtml(b, st) {
   const page = b.page && typeof b.page === 'object' ? b.page : {};
-  const tag = [b.style, b.city].filter(Boolean).join(' · ');
-  const lineup = page.lineup === false ? [] : (Array.isArray(b.lineup) ? b.lineup : []).filter(m => m && (m.name || m.inst));
+  const head = st.m.head ? `${st.m.head[0]} · ${st.m.head[1]}` : [b.style, b.city].filter(Boolean).join(' · ');
+  return `<header class="bp-hero ${st.hero || st.tiny ? 'has-photo' : ''}">
+      ${st.hero || st.tiny ? `<button type="button" class="bp-hero-img" data-ph aria-label="Agrandir la photo"><span>${st.tiny ? `<img class="tiny" src="${st.tiny}" alt="">` : ''}${st.hero ? `<img class="full on" src="${st.hero}" alt="">` : ''}</span></button>` : ''}
+      <div class="bp-hero-in">
+        ${isCover(b.cover) ? `<img class="bp-cover" src="${b.cover}" alt="">` : ''}
+        <div class="bp-id">
+          ${head ? `<p class="bp-tag ${st.m.live ? 'live' : ''}"><i></i><span>${esc(head)}</span></p>` : ''}
+          <h1>${esc(b.name || '')}</h1>
+          ${page.tagline ? `<p class="bp-line">${esc(page.tagline)}</p>` : ''}
+          <p class="bp-cta">${bandCtaHtml(st)}</p>
+        </div>
+      </div>
+    </header>`;
+}
+function bandRestHtml(b, st) {
+  const page = b.page && typeof b.page === 'object' ? b.page : {};
+  const m = st.m;
+  const lineup = page.lineup === false ? [] : (Array.isArray(b.lineup) ? b.lineup : []).filter(x => x && (x.name || x.inst));
   const links = linkRows(b.links);
   const memo = String(b.memo || '').trim();
   const bio = String(page.bio || '').trim();
   const yt = youtubeId(page.video);
   const video = yt ? '' : urlIn(String(page.video || '').trim());
-  const dates = datesOf(page);
-  const now = today();
-  const next = dates.filter(x => x.d >= now);
-  const past = dates.filter(x => x.d < now).reverse().slice(0, 6);
-  const day = x => new Date(x.d + 'T12:00:00');
-  const wait = next[0] ? Math.round((day(next[0]) - new Date(now + 'T12:00:00')) / 864e5) : -1;
-  const soon = wait === 0 ? 'ce soir' : wait === 1 ? 'demain' : wait > 1 ? `dans ${wait} jours` : '';
-  const dateLi = (x, cls) => { const d = day(x); const u = urlIn(String(x.url || '').trim());
-    return `<li class="${cls}"><time datetime="${x.d}"><b>${String(d.getDate()).padStart(2, '0')}</b><span>${esc(d.toLocaleDateString('fr-FR', { month: 'short', year: 'numeric' }))}</span></time><span class="where">${cls === 'next' ? `<em>Prochain concert · ${soon}</em>` : ''}${esc(x.where)}</span>${u && cls !== 'old' ? `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer">infos ↗</a>` : ''}</li>`; };
+  const hour = x => (/^\d{2}:\d{2}$/.test(x.h || '') ? x.h.replace(/^0/, '').replace(':', ' h ').replace(/ 00$/, '') : '');
+  const dateLi = (x, cls, n) => {
+    const d = m.day(x), u = urlIn(String(x.url || '').trim());
+    const said = [cls === 'next' ? (m.live ? 'Ce soir' : `Prochain concert · ${m.soon.toLowerCase()}`) : '', hour(x)].filter(Boolean).join(' · ');
+    return `<li class="${cls}"><time datetime="${x.d}"><b>${String(d.getDate()).padStart(2, '0')}</b><span>${esc(d.toLocaleDateString('fr-FR', { month: 'short', year: 'numeric' }))}</span></time><span class="where">${said ? `<em>${esc(said)}</em>` : ''}${esc(x.where)}${cls === 'old' ? '' : `<span class="acts">${u ? `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer">billets ↗</a>` : ''}<button type="button" data-ics="${n}">agenda</button><a href="https://www.google.com/maps/search/?api=1&amp;query=${encodeURIComponent(x.where)}" target="_blank" rel="noopener noreferrer">itinéraire</a></span>`}</span></li>`;
+  };
   const mail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(page.booking || '') ? page.booking : '';
-  const pics = (photos || []).filter(isCover);
+  const pics = st.photos;
   const wide = pics.length >= 3 ? pics[1] : '';          // une grande photo en pleine largeur, au milieu de la page
   const gal = pics.slice(wide ? 2 : 1);
-  const nextLabel = next[0] ? `${day(next[0]).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })} · ${next[0].where}` : '';
-  const facts = [b.style && ['Style', b.style], b.city && ['Ville', b.city], lineup.length && ['Formation', lineup.length > 1 ? `${lineup.length} musiciens` : 'Solo'], nextLabel && ['Prochain concert', nextLabel]].filter(Boolean);
-  const lineupHtml = lineup.length ? `<ol class="bp-panel bp-lineup">${lineup.map((m, n) => `<li><span>${String(n + 1).padStart(2, '0')}</span><div><b>${esc(m.name || '')}</b><em>${esc(m.inst || '')}</em></div></li>`).join('')}</ol>` : '';
+  const facts = [b.style && ['Style', b.style], b.city && ['Ville', b.city], lineup.length && ['Formation', lineup.length > 1 ? `${lineup.length} musiciens` : 'Solo'], m.label && [m.live ? 'Ce soir' : 'Prochain concert', m.label]].filter(Boolean);
+  const lineupHtml = lineup.length ? `<ol class="bp-panel bp-lineup">${lineup.map((x, n) => `<li><span>${String(n + 1).padStart(2, '0')}</span><div><b>${esc(x.name || '')}</b><em>${esc(x.inst || '')}</em></div></li>`).join('')}</ol>` : '';
+  const first = st.tracks.findIndex(canPlay);
   const menu = [];
   const sec = (id, title, body) => { menu.push([id, title]); return `<section class="bp-sec" id="bp-${id}"><h2>${title}</h2>${body}</section>`; };
   const parts = [];
+  if (st.tracks.length) parts.push(sec('ecouter', 'Écouter', `<ol class="bp-panel bp-tracks">${st.tracks.map((t, n) => { const ok = canPlay(t); return `<li><button type="button" class="bp-trk ${ok ? '' : 'mute'}" data-trk="${n}" ${ok ? '' : 'disabled'}><span class="n">${String(n + 1).padStart(2, '0')}</span><span class="t"><b>${esc(t.title)}</b><em>${esc(ok ? trackNote(t) : 'Format non lu par cet appareil')}</em></span>${waveSvg(t, 'w')}<span class="d">${fmtDur(trackLen(t))}</span></button></li>`; }).join('')}</ol>`));
   if (bio || lineupHtml) parts.push(sec('groupe', bio ? 'Le groupe' : 'Line-up', `<div class="bp-two ${bio && lineupHtml ? '' : 'solo'}">${bio ? `<div class="bp-text">${paras(bio)}</div>` : ''}${lineupHtml}</div>`));
   if (wide) parts.push(`<button type="button" class="bp-break" data-ph aria-label="Agrandir la photo"><img src="${wide}" alt="" loading="lazy">${page.tagline ? `<span>${esc(page.tagline)}</span>` : ''}</button>`);
   if (gal.length) parts.push(sec('photos', 'Photos', `<div class="bp-gal n${Math.min(gal.length, 7)}">${gal.map(src => `<button type="button" class="bp-panel" data-ph aria-label="Agrandir la photo"><img src="${src}" alt="" loading="lazy"></button>`).join('')}</div>`));
   if (yt) parts.push(sec('video', 'En vidéo', `<div class="bp-panel bp-frame"><iframe src="https://www.youtube-nocookie.com/embed/${yt}" title="Vidéo du groupe" loading="lazy" allow="accelerometer; encrypted-media; gyroscope; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe></div>`));
   else if (video) parts.push(sec('video', 'En vidéo', `<div class="bp-grille"><a class="bp-panel bp-link" href="${esc(video)}" target="_blank" rel="noopener noreferrer"><b>Voir la vidéo</b><small>${esc(linkLabel(video))}</small><span aria-hidden="true">↗</span></a></div>`));
-  if (next.length || past.length) parts.push(sec('concerts', 'Concerts', `${next.length ? `<ol class="bp-panel bp-dates">${next.map((x, i) => dateLi(x, i ? '' : 'next')).join('')}</ol>` : '<p class="bp-quiet">Pas de date annoncée pour le moment.</p>'}
-        ${past.length ? `<h3>Déjà joué</h3><ol class="bp-panel bp-dates">${past.map(x => dateLi(x, 'old')).join('')}</ol>` : ''}`));
-  if (links.length) parts.push(sec('ecouter', 'Écouter', `<div class="bp-grille">${links.map(l => `<a class="bp-panel bp-link" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer"><b>${esc(l.label)}</b><small>${esc(l.sub)}</small><span aria-hidden="true">↗</span></a>`).join('')}</div>`));
+  if (m.next.length || m.past.length) parts.push(sec('concerts', 'Concerts', `${m.next.length ? `<ol class="bp-panel bp-dates">${m.next.map((x, n) => dateLi(x, n ? '' : 'next', n)).join('')}</ol>` : '<p class="bp-quiet">Pas de date annoncée pour le moment.</p>'}
+        ${m.past.length ? `<h3>Déjà joué</h3><ol class="bp-panel bp-dates">${m.past.map(x => dateLi(x, 'old', -1)).join('')}</ol>` : ''}`));
+  if (links.length) parts.push(sec('suivre', 'Suivre', `<div class="bp-grille">${links.map(l => `<a class="bp-panel bp-link" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer"><b>${esc(l.label)}</b><small>${esc(l.sub)}</small><span aria-hidden="true">↗</span></a>`).join('')}</div>`));
   if (mail) parts.push(sec('contact', 'Contact', `<div class="bp-panel bp-contact"><span>Booking et presse</span><a href="mailto:${esc(mail)}">${esc(mail)}</a></div>`));
-  const tick = [b.name, b.style, b.city, nextLabel && `Prochain concert : ${nextLabel}`, page.tagline].filter(Boolean);
+  const tick = [b.name, b.style, b.city, m.label && (m.live ? `Ce soir : ${m.next[0].where}` : `Prochain concert : ${m.label}`), page.tagline].filter(Boolean);
   const run = tick.map(x => `<span>${esc(x)}</span><i>✦</i>`).join('');
-  return `<article class="bp-page">
-    <header class="bp-hero ${pics[0] ? 'has-photo' : ''}">
-      ${pics[0] ? `<button type="button" class="bp-hero-img" data-ph aria-label="Agrandir la photo"><img src="${pics[0]}" alt=""></button>` : ''}
-      <div class="bp-hero-in">
-        ${isCover(b.cover) ? `<img class="bp-cover" src="${b.cover}" alt="">` : ''}
-        <div class="bp-id">
-          ${tag ? `<p class="bp-tag"><i></i>${esc(tag)}</p>` : ''}
-          <h1>${esc(b.name || '')}</h1>
-          ${page.tagline ? `<p class="bp-line">${esc(page.tagline)}</p>` : ''}
-        </div>
-      </div>
-    </header>
-    ${tick.length > 1 ? `<div class="bp-tick" aria-hidden="true"><div>${run.repeat(4)}</div></div>` : ''}
+  // La fin de la page : le nom revient, un seul geste mis en avant, et le partage.
+  const tix = m.next[0] ? urlIn(String(m.next[0].url || '').trim()) : '';
+  const act = tix ? `<a class="bp-panel bp-link" href="${esc(tix)}" target="_blank" rel="noopener noreferrer"><b>Billets</b><small>${esc(m.label)}</small><span aria-hidden="true">↗</span></a>`
+    : first >= 0 ? `<button type="button" class="bp-panel bp-link" data-trk="${first}"><b>Écouter</b><small>${esc(st.tracks[first].title)}</small><span aria-hidden="true">▸</span></button>`
+    : links[0] ? `<a class="bp-panel bp-link" href="${esc(links[0].url)}" target="_blank" rel="noopener noreferrer"><b>${esc(links[0].label)}</b><small>${esc(links[0].sub)}</small><span aria-hidden="true">↗</span></a>` : '';
+  const credit = lineup.map(x => x.name).filter(Boolean).join(' · ');
+  BP.nextLabel = m.label;
+  return `${tick.length > 1 ? `<div class="bp-tick" aria-hidden="true"><div>${run.repeat(4)}</div></div>` : ''}
     ${menu.length > 1 ? `<nav class="bp-nav"><b>${esc(b.name || '')}</b><div>${menu.map(([id, t]) => `<button type="button" data-go="bp-${id}">${t}</button>`).join('')}</div></nav>` : ''}
     <div class="bp-body">
       ${memo || facts.length > 1 ? `<div class="bp-intro ${memo && facts.length > 1 ? '' : 'solo'}">
@@ -865,12 +913,14 @@ function bandPageHtml(b, photos) {
         ${facts.length > 1 ? `<dl class="bp-panel bp-facts">${facts.map(([k, v]) => `<div><dt>${k}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>` : ''}</div>` : ''}
       ${parts.join('\n')}
     </div>
-    <footer class="bp-foot"><a href="${esc(location.pathname)}">Rec<i>.</i></a><span>le carnet d'idées des groupes</span></footer>
-  </article>`;
+    <section class="bp-end"><h1 class="bp-end-name" aria-hidden="true">${esc(b.name || '')}</h1>
+      ${credit ? `<p class="bp-end-credit">${esc(credit)}</p>` : ''}
+      <div class="bp-end-acts">${act}${st.link ? '<button type="button" class="bp-end-share" data-share>Partager la page</button>' : ''}</div></section>
+    <footer class="bp-foot"><a href="${esc(location.pathname)}">Rec<i>.</i></a><span>le carnet d'idées des groupes</span></footer>`;
 }
-// Les photos en grand, avec précédente et suivante.
+// Les photos en grand, avec précédente et suivante (flèches, clavier, ou glissement du doigt).
 function bandZoom(el, i) {
-  const list = [...el.querySelectorAll('[data-ph] img')].map(x => x.src);
+  const list = [...el.querySelectorAll('[data-ph] img:not(.tiny)')].map(x => x.src);
   if (!list.length) return;
   i = (i + list.length) % list.length;
   let z = el.querySelector('.bp-zoom');
@@ -878,52 +928,368 @@ function bandZoom(el, i) {
   z.dataset.i = i;
   z.innerHTML = `<img src="${list[i]}" alt="">${list.length > 1 ? `<button type="button" data-z="-1" aria-label="Photo précédente">‹</button><button type="button" data-z="1" aria-label="Photo suivante">›</button><span>${i + 1} / ${list.length}</span>` : ''}`;
 }
-let BP_IO = null;
-function showBandPage(b, preview = false, photos = [], again = false) {
-  let el = $('#bandpage');
-  if (!el) {
-    el = document.createElement('div'); el.id = 'bandpage'; el.className = 'bp'; document.body.append(el);
-    el.addEventListener('click', e => {
-      const z = el.querySelector('.bp-zoom');
-      if (z) { const step = e.target.closest('[data-z]'); if (step) bandZoom(el, +z.dataset.i + +step.dataset.z); else z.remove(); return; }
-      const go = e.target.closest('[data-go]');
-      if (go) { const t = el.querySelector('#' + go.dataset.go); if (t) el.scrollTo({ top: t.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop - 76, behavior: 'smooth' }); return; }
-      const ph = e.target.closest('[data-ph]');
-      if (ph) bandZoom(el, [...el.querySelectorAll('[data-ph]')].indexOf(ph));
-    });
-    document.addEventListener('keydown', e => {
-      const z = el.querySelector('.bp-zoom');
-      if (!z || el.hidden) return;
-      if (e.key === 'Escape') z.remove();
-      if (e.key === 'ArrowLeft') bandZoom(el, +z.dataset.i - 1);
-      if (e.key === 'ArrowRight') bandZoom(el, +z.dataset.i + 1);
-    });
+/* ----- L'écoute : un lecteur qui reste en bas de l'écran pendant qu'on lit ----- */
+function bandAudio() {
+  if (BP.audio) return BP.audio;
+  const a = BP.audio = new Audio();
+  a.preload = 'auto';
+  a.addEventListener('loadedmetadata', () => { const t = BP.cur; if (t && cutIn(t) > 0 && a.currentTime < cutIn(t)) { try { a.currentTime = cutIn(t); } catch {} } });
+  // L'arrêt à la fin de la coupe passe par timeupdate : il continue de tourner écran verrouillé, pas l'animation.
+  a.addEventListener('timeupdate', () => { const t = BP.cur; bandTick(); if (t && !BP.lock && !a.paused && a.currentTime >= trackEnd(t, a) - 0.05) { BP.lock = true; bandNext(true); } });
+  a.addEventListener('ended', () => { if (!BP.lock) { BP.lock = true; bandNext(true); } });
+  a.addEventListener('playing', () => { BP.wait = false; BP.lock = false; if (BP.cur) BP.cur.retried = false; bandPaintPlay(); bandLoop(); });
+  a.addEventListener('pause', bandPaintPlay);
+  a.addEventListener('error', () => { BP.wait = false; BP.lock = false; const t = BP.cur; if (t && !t.retried && BP.o.sign) { t.retried = true; t.url = ''; const n = BP.idx; BP.idx = -1; BP.cur = null; bandPlay(n); } else bandPaintPlay(); });
+  return a;
+}
+function bandDeck() {
+  if (BP.deck) return BP.deck;
+  const d = BP.deck = document.createElement('div');
+  d.className = 'bp-deck bp-panel';
+  d.hidden = true;
+  d.innerHTML = `<button type="button" class="bp-deck-play" data-deck="toggle" aria-label="Lecture"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="pl" d="M8 5.5v13l11-6.5z"/><path class="pa" d="M7 5h3.6v14H7zM13.4 5H17v14h-3.6z"/></svg></button>
+    <div class="bp-deck-main"><p class="bp-deck-title"><b></b><span></span></p><div class="bp-deck-wave" data-deck="seek"></div></div>
+    <span class="bp-deck-time">0:00</span><span class="deck-meter" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></span>
+    <button type="button" class="bp-deck-next" data-deck="next" aria-label="Morceau suivant"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6v12l9-6zM16.5 6H19v12h-2.5z"/></svg></button>`;
+  return d;
+}
+function bandPaintPlay() {
+  const el = $('#bandpage');
+  if (!el) return;
+  const a = BP.audio, t = BP.cur;
+  const playing = !!(a && t && (BP.wait || (!a.paused && !a.ended))); // pendant le chargement, le bouton montre déjà « pause »
+  el.classList.toggle('playing', playing);
+  el.classList.toggle('waiting', !!t && BP.wait);
+  el.classList.toggle('decked', !!t);
+  el.querySelectorAll('.bp-trk').forEach(x => x.classList.toggle('on', !!t && +x.dataset.trk === BP.idx));
+  const said = el.querySelector('.bp-hero .bp-listen[data-trk] span');
+  if (said) said.textContent = playing ? 'En écoute' : 'Écouter';
+  const d = BP.deck;
+  if (!d) return;
+  if (d.parentNode !== el) el.append(d);
+  d.hidden = !t;
+  if (!t) return;
+  d.querySelector('.bp-deck-title b').textContent = t.title;
+  d.querySelector('.bp-deck-title span').textContent = BP.wait ? 'un instant…' : BP.after && BP.nextLabel ? `Prochain concert · ${BP.nextLabel}` : (BP.b && BP.b.name) || '';
+  if (d.dataset.trk !== t.id) { d.dataset.trk = t.id; d.querySelector('.bp-deck-wave').innerHTML = waveSvg(t, 'w-base') + waveSvg(t, 'w-fill'); d.style.setProperty('--p', '0%'); }
+  d.querySelector('.bp-deck-play').setAttribute('aria-label', playing ? 'Pause' : 'Lecture');
+  d.querySelector('.bp-deck-next').hidden = (BP.o.tracks || []).filter(canPlay).length < 2;
+}
+function bandTick() {
+  const a = BP.audio, t = BP.cur, d = BP.deck;
+  if (!a || !t || !d) return 0;
+  const from = cutIn(t), to = trackEnd(t, a);
+  const p = Math.max(0, Math.min(1, (a.currentTime - from) / Math.max(.01, to - from)));
+  d.style.setProperty('--p', (p * 100).toFixed(2) + '%');
+  d.querySelector('.bp-deck-time').textContent = fmtDur(Math.max(0, a.currentTime - from));
+  return p;
+}
+// Tant que ça joue : la progression, le vumètre, et l'ambiance du modèle qui suit le morceau.
+function bandLoop() {
+  cancelAnimationFrame(BP.raf);
+  const calm = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const step = now => {
+    const el = $('#bandpage'), a = BP.audio, t = BP.cur;
+    const meter = BP.deck && BP.deck.querySelector('.deck-meter');
+    const fx = el && el.querySelector('.bp-fx');
+    if (!el || el.hidden || !a || !t || a.paused) { BP.level = 0; setMeter(meter, 0); if (fx) fx.style.opacity = ''; return; }
+    const p = bandTick(), pk = wavePeaks(t), x = p * (pk.length - 1), i = Math.floor(x);
+    const v = ((pk[i] || 0) + ((pk[Math.min(pk.length - 1, i + 1)] || 0) - (pk[i] || 0)) * (x - i)) / 100;
+    const lively = v * (.7 + .3 * Math.abs(Math.sin(now / 90) * Math.sin(now / 37)));
+    BP.level += (lively - BP.level) * .16;
+    setMeter(meter, calm ? v : Math.min(1, BP.level * 1.2));
+    if (fx && !calm) fx.style.opacity = (.42 + .58 * Math.min(1, BP.level * 1.35)).toFixed(3);
+    BP.raf = requestAnimationFrame(step);
+  };
+  BP.raf = requestAnimationFrame(step);
+}
+function bandMedia(t) {
+  if (!('mediaSession' in navigator) || !window.MediaMetadata) return;
+  try {
+    navigator.mediaSession.metadata = new MediaMetadata({ title: t.title, artist: (BP.b && BP.b.name) || '', album: 'Rec.', artwork: BP.b && isCover(BP.b.cover) ? [{ src: BP.b.cover, sizes: '360x360', type: 'image/jpeg' }] : [] });
+    navigator.mediaSession.setActionHandler('play', () => { if (BP.audio) BP.audio.play().catch(() => {}); });
+    navigator.mediaSession.setActionHandler('pause', () => { if (BP.audio) BP.audio.pause(); });
+    navigator.mediaSession.setActionHandler('nexttrack', () => bandNext(false));
+  } catch {}
+}
+async function bandPlay(n) {
+  const list = BP.o.tracks || [], t = list[n];
+  if (!t || !canPlay(t)) return;
+  const a = bandAudio();
+  if (BP.cur && BP.cur.id === t.id && a.src && !BP.after) {
+    if (BP.cur !== t) { t.url = t.url || BP.cur.url; BP.cur = t; BP.idx = n; } // la liste a été rafraîchie : même morceau, nouvel objet
+    if (a.paused) { BP.wait = true; bandPaintPlay(); a.play().catch(() => { BP.wait = false; bandPaintPlay(); }); }
+    else { BP.wait = false; a.pause(); }
+    return;
   }
+  BP.idx = n; BP.cur = t; BP.after = false; BP.lock = false;
+  bandDeck();
+  if (!t.url) {
+    BP.wait = true; a.pause(); bandPaintPlay();
+    try { t.url = await BP.o.sign(t); } catch (e) { console.error(e); }
+    if (BP.cur !== t) return;
+    if (!t.url) { BP.wait = false; BP.cur = null; BP.idx = -1; bandPaintPlay(); return; }
+  }
+  a.src = t.url;
+  try { a.currentTime = cutIn(t); } catch {}
+  BP.wait = true;
+  bandPaintPlay();
+  bandMedia(t);
+  a.play().catch(e => { console.error(e); BP.wait = false; bandPaintPlay(); });
+}
+function bandNext(auto) {
+  const list = BP.o.tracks || [], a = BP.audio;
+  if (!a || !BP.cur) return;
+  let n = BP.idx;
+  for (let k = 0; k < list.length; k++) { n++; if (n >= list.length) { if (auto) { n = -1; break; } n = 0; } if (canPlay(list[n])) break; }
+  if (n < 0 || n === BP.idx) { // dernière note, ou un seul morceau : on s'arrête sur la suite (le prochain concert), prêt à rejouer
+    a.pause();
+    try { a.currentTime = cutIn(BP.cur); } catch {}
+    BP.after = auto; BP.lock = false;
+    if (!auto) { BP.after = true; bandPlay(BP.idx); return; }
+    bandTick(); bandPaintPlay();
+    return;
+  }
+  bandPlay(n);
+}
+function bandStop() {
+  cancelAnimationFrame(BP.raf);
+  if (BP.audio) { try { BP.audio.pause(); BP.audio.removeAttribute('src'); BP.audio.load(); } catch {} }
+  BP.cur = null; BP.idx = -1; BP.after = false; BP.wait = false; BP.lock = false;
+  if (BP.deck) { BP.deck.hidden = true; delete BP.deck.dataset.trk; }
+}
+// Les soirs de concert : l'écran à la couleur du groupe. Le rythme est calé sur l'horloge, donc toute la salle respire ensemble.
+function bandGlow(on) {
+  const el = $('#bandpage');
+  if (!el) return;
+  const old = el.querySelector('.bp-glow');
+  if (old) old.remove();
+  keepAwake(!!on);
+  if (!on || !BP.b) return;
+  const g = document.createElement('div');
+  g.className = 'bp-glow';
+  g.style.animationDelay = `-${Date.now() % 8000}ms`;
+  g.innerHTML = `<b>${esc(BP.b.name || '')}</b><span>touche l'écran pour éteindre</span>`;
+  el.append(g);
+}
+// Une date dans l'agenda du téléphone : un fichier .ics, ou Google Agenda là où les fichiers ne s'ouvrent pas.
+function bandAgenda(n) {
+  const b = BP.b, x = b && bandState().m.next[n];
+  if (!x) return;
+  const pad = v => String(v).padStart(2, '0');
+  const ymd = d => `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`;
+  const [Y, M, D] = x.d.split('-').map(Number);
+  const timed = /^\d{2}:\d{2}$/.test(x.h || '');
+  const [h, mi] = timed ? x.h.split(':').map(Number) : [0, 0];
+  const start = new Date(Y, M - 1, D, h, mi), end = timed ? new Date(Y, M - 1, D, h + 2, mi) : new Date(Y, M - 1, D + 1);
+  const stamp = d => `${ymd(d)}T${pad(d.getHours())}${pad(d.getMinutes())}00`;
+  const title = `${b.name} en concert`, link = BP.o.link || '';
+  if (/Instagram|FBAN|FBAV|FB_IAB|TikTok|Line\//i.test(navigator.userAgent)) {
+    window.open(`https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(title)}&dates=${timed ? `${stamp(start)}/${stamp(end)}` : `${ymd(start)}/${ymd(end)}`}&location=${encodeURIComponent(x.where)}&details=${encodeURIComponent(link)}`, '_blank', 'noopener');
+    return;
+  }
+  const txt = v => String(v).replace(/\\/g, '\\\\').replace(/([,;])/g, '\\$1').replace(/\r?\n/g, '\\n');
+  const now = new Date();
+  const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Rec.//Book//FR', 'BEGIN:VEVENT', `UID:${x.d}-${slugify(b.name)}@rec`,
+    `DTSTAMP:${now.getUTCFullYear()}${pad(now.getUTCMonth() + 1)}${pad(now.getUTCDate())}T${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}${pad(now.getUTCSeconds())}Z`,
+    timed ? `DTSTART:${stamp(start)}` : `DTSTART;VALUE=DATE:${ymd(start)}`, timed ? `DTEND:${stamp(end)}` : `DTEND;VALUE=DATE:${ymd(end)}`,
+    `SUMMARY:${txt(title)}`, `LOCATION:${txt(x.where)}`, link ? `URL:${link}` : '', link ? `DESCRIPTION:${txt(link)}` : '',
+    'BEGIN:VALARM', 'TRIGGER:-P1D', 'ACTION:DISPLAY', `DESCRIPTION:${txt(`${b.name} joue demain`)}`, 'END:VALARM', 'END:VEVENT', 'END:VCALENDAR'].filter(Boolean).join('\r\n');
+  const url = URL.createObjectURL(new Blob([ics], { type: 'text/calendar;charset=utf-8' }));
+  const dl = document.createElement('a');
+  dl.href = url; dl.download = `${slugify(b.name) || 'concert'}-${x.d}.ics`;
+  document.body.append(dl); dl.click(); dl.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+async function bandShare(btn) {
+  const link = BP.o.link, title = (BP.b && BP.b.name) || 'Rec.';
+  if (!link) return;
+  if (navigator.share) { try { await navigator.share({ title, url: link }); } catch {} return; }
+  try { await navigator.clipboard.writeText(link); btn.textContent = 'Lien copié'; } catch { btn.textContent = link.replace(/^https?:\/\//, ''); }
+  setTimeout(() => { if (btn.isConnected) btn.textContent = 'Partager la page'; }, 2600);
+}
+// La barre du navigateur prend la couleur du modèle ; elle reprend celle de l'appli à la fermeture.
+function bandTheme(tpl) {
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (!meta) return;
+  if (BP.theme0 === null) BP.theme0 = meta.content;
+  meta.content = tpl ? tpl[2] : BP.theme0;
+  if (!tpl) BP.theme0 = null;
+}
+// La police du titre, attendue (pas longtemps) pour que le nom n'entre pas dans une police de secours.
+function fontReady(tpl) {
+  loadTplFont(tpl);
+  const link = document.getElementById('tplfont-' + tpl[0]);
+  if (!link || !document.fonts || !document.fonts.load) return Promise.resolve();
+  const name = tpl[5].split('&')[0].split(':')[0].replace(/\+/g, ' ');
+  const sheet = link.sheet ? Promise.resolve() : new Promise(r => { link.addEventListener('load', r, { once: true }); link.addEventListener('error', r, { once: true }); });
+  return sheet.then(() => document.fonts.load(`1em "${name}"`)).catch(() => {});
+}
+// L'essayage : dans l'aperçu, le groupe passe sa propre page d'un modèle à l'autre d'un toucher. Un modèle n'est que des variables : rien n'est recomposé.
+const bandTryHtml = b => { const page = (b && b.page) || {}, cur = tplOf(page)[0], acc = /^#[0-9a-f]{6}$/i.test(page.accent || '') ? page.accent : '';
+  return `<div class="bp-try">${TEMPLATES.map(t => `<button type="button" class="tpl ${t[0] === cur ? 'on' : ''}" data-tpl="${t[0]}" style="--b:${t[2]};--t:${t[3]};--a:${t[4]}"><i></i><b>${t[1]}</b></button>`).join('')}<span class="sep"></span>
+    <button type="button" class="swatch auto ${acc ? '' : 'on'}" data-accent="" aria-label="Couleur du modèle" title="Couleur du modèle"></button>${PALETTE.map(c => `<button type="button" class="swatch ${c === acc ? 'on' : ''}" style="--c:${c}" data-accent="${c}" aria-label="Couleur ${c}"></button>`).join('')}</div>`; };
+function bandTry(btn) {
+  const el = $('#bandpage');
+  if (!el || !BP.b) return;
+  const page = { ...(BP.b.page || {}) };
+  if ('tpl' in btn.dataset) page.template = btn.dataset.tpl; else page.accent = btn.dataset.accent;
+  BP.b = { ...BP.b, page };
+  const tpl = tplOf(page), accent = /^#[0-9a-f]{6}$/i.test(page.accent || '') ? page.accent : '';
+  loadTplFont(tpl);
+  el.dataset.tpl = tpl[0];
+  if (accent) el.style.setProperty('--accent', accent); else el.style.removeProperty('--accent');
+  bandTheme(tpl);
+  el.querySelectorAll('.bp-try .tpl').forEach(x => x.classList.toggle('on', x.dataset.tpl === tpl[0]));
+  el.querySelectorAll('.bp-try .swatch').forEach(x => x.classList.toggle('on', x.dataset.accent === accent));
+  if ('tpl' in btn.dataset && el.classList.contains('anim')) { // le titre rejoue son entrée dans le nouveau modèle
+    el.classList.remove('again');
+    const hero = el.querySelector('.bp-hero');
+    if (hero) hero.replaceWith(hero.cloneNode(true));
+  }
+  if (BP.o.onPick) BP.o.onPick(tpl[0], accent);
+}
+function bandClose() {
+  const el = $('#bandpage');
+  bandStop();
+  if (BP.io) BP.io.disconnect();
+  if (BP.spy) BP.spy.disconnect();
+  BP.io = BP.spy = null;
+  keepAwake(false);
+  bandTheme(null);
+  if (el) { el.hidden = true; el.innerHTML = ''; }
+  document.body.classList.remove('paging');
+}
+function bandShell() {
+  let el = $('#bandpage');
+  if (el) return el;
+  el = document.createElement('div'); el.id = 'bandpage'; el.className = 'bp'; document.body.append(el);
+  el.addEventListener('click', e => {
+    if (el.querySelector('.bp-glow')) return bandGlow(false);
+    const z = el.querySelector('.bp-zoom'), t = e.target;
+    if (z) { if (Date.now() - BP.swiped < 450) return; const step = t.closest('[data-z]'); if (step) bandZoom(el, +z.dataset.i + +step.dataset.z); else z.remove(); return; }
+    const pick = t.closest('.bp-try [data-tpl], .bp-try [data-accent]');
+    if (pick) return bandTry(pick);
+    if (t.closest('[data-bp-close]')) return bandClose();
+    if (t.closest('[data-bp-live]')) return showBandPage(BP.b, { ...BP.o, live: !BP.o.live, again: true });
+    const deck = t.closest('[data-deck]');
+    if (deck) {
+      const a = BP.audio, cur = BP.cur;
+      if (deck.dataset.deck === 'next') bandNext(false);
+      else if (deck.dataset.deck === 'toggle') bandPlay(BP.idx);
+      else if (a && cur) { const r = deck.getBoundingClientRect(), from = cutIn(cur); try { a.currentTime = from + Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * (trackEnd(cur, a) - from); } catch {} bandTick(); }
+      return;
+    }
+    const trk = t.closest('[data-trk]');
+    if (trk) return bandPlay(+trk.dataset.trk);
+    if (t.closest('[data-glow]')) return bandGlow(true);
+    const ics = t.closest('[data-ics]');
+    if (ics) return bandAgenda(+ics.dataset.ics);
+    const share = t.closest('[data-share]');
+    if (share) return bandShare(share);
+    const go = t.closest('[data-go]');
+    if (go) { const to = el.querySelector('#' + go.dataset.go); if (to) el.scrollTo({ top: to.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop - 76, behavior: 'smooth' }); return; }
+    const ph = t.closest('[data-ph]');
+    if (ph) { const img = ph.querySelector('img:not(.tiny)'); if (img) bandZoom(el, [...el.querySelectorAll('[data-ph] img:not(.tiny)')].indexOf(img)); }
+  });
+  let sx = 0;
+  el.addEventListener('touchstart', e => { if (e.target.closest('.bp-zoom')) sx = e.touches[0].clientX; }, { passive: true });
+  el.addEventListener('touchend', e => {
+    const z = el.querySelector('.bp-zoom');
+    if (!z || !e.target.closest('.bp-zoom')) return;
+    const dx = e.changedTouches[0].clientX - sx;
+    if (Math.abs(dx) > 45) { BP.swiped = Date.now(); bandZoom(el, +z.dataset.i + (dx < 0 ? 1 : -1)); }
+  }, { passive: true });
+  document.addEventListener('keydown', e => {
+    if (el.hidden) return;
+    if (e.key === 'Escape' && el.querySelector('.bp-glow')) return bandGlow(false);
+    const z = el.querySelector('.bp-zoom');
+    if (!z) return;
+    if (e.key === 'Escape') z.remove();
+    if (e.key === 'ArrowLeft') bandZoom(el, +z.dataset.i - 1);
+    if (e.key === 'ArrowRight') bandZoom(el, +z.dataset.i + 1);
+  });
+  return el;
+}
+// Les rubriques entrent en scène à mesure qu'on descend, et le menu allume celle où l'on est.
+function bandWatch(again) {
+  const el = $('#bandpage');
+  if (BP.io) BP.io.disconnect();
+  if (BP.spy) BP.spy.disconnect();
+  BP.io = BP.spy = null;
+  if (!el || !('IntersectionObserver' in window)) return;
+  if (el.classList.contains('anim')) {
+    BP.io = new IntersectionObserver(list => list.forEach(x => { if (x.isIntersecting) { x.target.classList.add('in'); BP.io.unobserve(x.target); } }), { root: el, rootMargin: '0px 0px -8% 0px' });
+    el.querySelectorAll('.bp-intro, .bp-sec, .bp-break, .bp-end').forEach(x => { if (again && x.getBoundingClientRect().top < innerHeight) x.classList.add('in', 'now'); else BP.io.observe(x); });
+  }
+  const nav = el.querySelector('.bp-nav div');
+  if (!nav) return;
+  BP.spy = new IntersectionObserver(list => list.forEach(x => {
+    if (!x.isIntersecting) return;
+    nav.querySelectorAll('button').forEach(bt => bt.classList.toggle('on', bt.dataset.go === x.target.id));
+    const on = nav.querySelector('button.on');
+    if (on) nav.scrollTo({ left: on.offsetLeft - nav.clientWidth / 2 + on.offsetWidth / 2, behavior: 'smooth' });
+  }), { root: el, rootMargin: '-45% 0px -50% 0px' });
+  el.querySelectorAll('.bp-sec[id]').forEach(x => BP.spy.observe(x));
+}
+// Tout afficher. o : { preview, photos, tracks, hero, sign, link, live, onPick, again }.
+function showBandPage(b, o = {}) {
+  const el = bandShell();
+  if (!o.again) bandStop();
+  BP.b = b;
+  BP.o = { ...o, photos: (o.photos || []).filter(isCover), tracks: o.tracks || [] };
   const tpl = tplOf(b && b.page);
   loadTplFont(tpl);
   el.dataset.tpl = tpl[0];
   const accent = b && b.page && /^#[0-9a-f]{6}$/i.test(b.page.accent || '') ? b.page.accent : '';
   if (accent) el.style.setProperty('--accent', accent); else el.style.removeProperty('--accent');
-  el.innerHTML = (preview ? '<div class="bp-bar"><span>Aperçu de la page publique</span><button class="txt-btn" data-bp-close>fermer</button></div>' : '') +
+  bandTheme(tpl);
+  el.classList.toggle('anim', !matchMedia('(prefers-reduced-motion: reduce)').matches);
+  el.classList.toggle('again', !!o.again);
+  el.classList.toggle('framed', !!o.preview);
+  el.classList.toggle('trying', !!o.onPick);
+  const st = bandState();
+  const canLive = b && datesOf(b.page).some(x => x.d >= today());
+  el.innerHTML = (o.preview ? `<div class="bp-bar"><span>Aperçu</span><div>${canLive ? `<button type="button" class="txt-btn ${o.live ? 'on' : ''}" data-bp-live>${o.live ? 'jour normal' : 'soir de concert'}</button>` : ''}<button type="button" class="txt-btn" data-bp-close>fermer</button></div></div>` : '') +
     '<div class="bp-fx" aria-hidden="true"><i></i><i></i></div>' +
-    (b ? bandPageHtml(b, photos) : `<article class="bp-page bp-none"><h1>Cette page n'existe pas</h1><p class="bp-memo">Le groupe l'a peut-être fermée, ou l'adresse est incomplète.</p>
-      <footer class="bp-foot"><a href="${esc(location.pathname)}">Rec<i>.</i></a><span>le carnet d'idées des groupes</span></footer></article>`);
+    (b ? `<article class="bp-page">${bandHeroHtml(b, st)}<div class="bp-rest">${bandRestHtml(b, st)}</div></article>`
+      : `<article class="bp-page bp-none"><h1>${o.offline ? 'Page indisponible' : "Cette page n'existe pas"}</h1><p class="bp-memo">${o.offline ? 'Pas de réseau pour le moment. Réessaie dans un instant.' : "Le groupe l'a peut-être fermée, ou l'adresse est incomplète."}</p>
+      <footer class="bp-foot"><a href="${esc(location.pathname)}">Rec<i>.</i></a><span>le carnet d'idées des groupes</span></footer></article>`) +
+    (o.onPick && b ? bandTryHtml(b) : '');
   el.hidden = false;
-  if (!again) el.scrollTop = 0;
-  el.classList.toggle('framed', preview);
+  if (!o.again) el.scrollTop = 0;
   document.body.classList.add('paging');
-  const close = el.querySelector('[data-bp-close]');
-  if (close) close.onclick = () => { el.hidden = true; el.innerHTML = ''; document.body.classList.remove('paging'); };
-  // Les rubriques entrent en scène à mesure qu'on descend (sauf si l'appareil demande moins d'animations).
-  if (BP_IO) { BP_IO.disconnect(); BP_IO = null; }
-  const lively = !matchMedia('(prefers-reduced-motion: reduce)').matches && 'IntersectionObserver' in window;
-  el.classList.toggle('anim', lively);
-  el.classList.toggle('again', again);
-  if (!lively) return;
-  BP_IO = new IntersectionObserver(list => list.forEach(x => { if (x.isIntersecting) { x.target.classList.add('in'); BP_IO.unobserve(x.target); } }), { root: el, rootMargin: '0px 0px -8% 0px' });
-  el.querySelectorAll('.bp-intro, .bp-sec, .bp-break').forEach(x => {
-    if (again && x.getBoundingClientRect().top < innerHeight) x.classList.add('in', 'now'); else BP_IO.observe(x);
-  });
+  bandWatch(!!o.again);
+  bandPaintPlay();
+}
+// Des données arrivent après coup (morceaux, photos) : on repeint sous l'ouverture, sans la toucher.
+function bandRefresh(patch) {
+  const el = $('#bandpage');
+  if (!el || el.hidden || !BP.b) return;
+  Object.assign(BP.o, patch);
+  BP.o.photos = (BP.o.photos || []).filter(isCover);
+  BP.o.tracks = BP.o.tracks || [];
+  const st = bandState();
+  const rest = el.querySelector('.bp-rest'), cta = el.querySelector('.bp-cta'), hero = el.querySelector('.bp-hero');
+  if (rest) rest.innerHTML = bandRestHtml(BP.b, st);
+  if (cta) cta.innerHTML = bandCtaHtml(st);
+  const full = hero && hero.querySelector('img.full');
+  if (hero && !st.hero && !st.tiny) { // le groupe n'a plus de photo : l'ouverture redevient simple
+    const old = hero.querySelector('.bp-hero-img');
+    if (old) old.remove();
+    hero.classList.remove('has-photo');
+  } else if (full && st.hero && full.getAttribute('src') !== st.hero) full.src = st.hero; // la photo a changé depuis la dernière visite
+  else if (hero && st.hero && !full) { // la vraie photo d'ouverture se pose en fondu sur la miniature
+    let box = hero.querySelector('.bp-hero-img');
+    if (!box) { hero.insertAdjacentHTML('afterbegin', '<button type="button" class="bp-hero-img" data-ph aria-label="Agrandir la photo"><span></span></button>'); box = hero.querySelector('.bp-hero-img'); hero.classList.add('has-photo'); }
+    const img = new Image();
+    img.className = 'full'; img.alt = '';
+    img.onload = () => requestAnimationFrame(() => img.classList.add('on'));
+    box.querySelector('span').append(img);
+    img.src = st.hero;
+  }
+  bandWatch(true);
+  bandPaintPlay();
 }
 // Les photos du groupe, gardées en mémoire le temps de la session.
 const PHOTOS = new Map();
@@ -957,8 +1323,16 @@ async function editBook(g) {
   let tpl = tplOf(page)[0];
   let accent = /^#[0-9a-f]{6}$/i.test(page.accent || '') ? page.accent : '';
   const photos = await photosOf(g);
+  let tiny = isCover(page.tiny) ? page.tiny : '';
+  const tracks = (Array.isArray(page.tracks) ? page.tracks : []).filter(x => x && takeById(x.take)).map(x => ({ take: x.take, title: String(x.title || '') })).slice(0, 5);
+  // Les morceaux du groupe qui ont une prise déjà envoyée : la plus longue des versions en cours représente le morceau.
+  const songs = S.ideas.filter(i => i.group_id === g.id)
+    .map(i => [i, takesOf(i.id).filter(t => !baseOf(t) && !superseded(t)).reduce((best, t) => (!best || lenOf(t) > lenOf(best) ? t : best), null)])
+    .filter(([, t]) => t && t.path && !waiting(t.id))
+    .sort((x, y) => ideaTitle(x[0]).localeCompare(ideaTitle(y[0]), 'fr'));
   const dateRow = x => `<div class="dt-row">
       <input class="field" type="date" data-dt="d" value="${esc(x.d || '')}">
+      <input class="field" type="time" data-dt="h" value="${esc(x.h || '')}" aria-label="Heure (facultative)" title="Heure (facultative)">
       <input class="field" data-dt="where" maxlength="90" autocomplete="off" placeholder="Salle, ville" value="${esc(x.where || '')}">
       <input class="field" data-dt="url" maxlength="300" autocomplete="off" placeholder="Lien billetterie (facultatif)" value="${esc(x.url || '')}">
       <button type="button" class="txt-btn danger" data-dt-del>retirer</button>
@@ -985,19 +1359,27 @@ async function editBook(g) {
     <button type="button" class="add-take" data-ph-add>+ ajouter des photos</button>
     <input type="file" id="kFile" accept="image/*" multiple hidden>
 
-    <h3 class="part">4 · Vidéo et concerts</h3>
+    <h3 class="part">4 · Les morceaux</h3>
+    <p class="hint">Jusqu'à 5 morceaux que tout le monde pourra écouter sur la page, sans compte. Le premier est proposé dès l'ouverture.</p>
+    <p class="hint"><b>À savoir :</b> on entend la partie gardée par la coupe, mais c'est le fichier entier de la prise qui devient accessible tant qu'elle est dans cette liste. Choisis des prises que le groupe assume.</p>
+    <div id="kTracks"></div>
+    <div class="trk-add"><select class="field" id="kSong" aria-label="Morceau à ajouter"></select><button type="button" class="txt-btn accent" data-trk-add>ajouter</button></div>
+    <p class="hint" id="kNoSong" hidden>Aucun morceau du groupe n'a encore de prise envoyée.</p>
+
+    <h3 class="part">5 · Vidéo et concerts</h3>
     <label class="label" for="kVideo">Vidéo</label>
     <input class="field" id="kVideo" maxlength="300" autocomplete="off" placeholder="Lien YouTube" value="${esc(page.video || '')}">
     <label class="label">Dates de concert</label>
+    <p class="hint">Le jour, l'heure si tu veux, la salle et la ville. Le soir venu, la page annonce « Ce soir » toute seule.</p>
     <div id="kDates">${datesOf(page).map(dateRow).join('')}</div>
     <button type="button" class="add-take" data-dt-add>+ ajouter une date</button>
 
-    <h3 class="part">5 · Sur la page</h3>
+    <h3 class="part">6 · Sur la page</h3>
     <label class="check"><input type="checkbox" id="kLineup" ${page.lineup === false ? '' : 'checked'}><span>Afficher le line-up</span></label>
     <label class="label" for="kBooking">E-mail de contact public</label>
     <input class="field" id="kBooking" type="email" maxlength="120" autocomplete="off" placeholder="Facultatif : booking@exemple.fr" value="${esc(page.booking || '')}">
     <p class="hint">Visible par tous sur la page. Laisse vide pour ne pas afficher de contact.</p>
-    <p class="band-acts"><button type="button" class="txt-btn accent" data-preview>voir l'aperçu</button></p>
+    <p class="band-acts"><button type="button" class="txt-btn accent" data-preview>voir l'aperçu et essayer les modèles</button></p>
     <div class="row"><button class="btn" data-x>Annuler</button><button class="btn primary" data-ok>Enregistrer</button></div>`,
   (sh, close) => {
     const paintTpl = () => sh.querySelectorAll('.tpl').forEach(b => b.classList.toggle('on', b.dataset.tpl === tpl));
@@ -1008,10 +1390,61 @@ async function editBook(g) {
     paintAccent();
     const grid = sh.querySelector('#kPhotos');
     const paintPhotos = () => {
-      grid.innerHTML = photos.map(ph => `<figure><img src="${ph.data}" alt=""><button type="button" class="txt-btn danger" data-ph-del="${ph.id}">retirer</button></figure>`).join('');
+      grid.innerHTML = photos.map(ph => `<figure><img src="${isCover(ph.data) ? ph.data : ''}" alt=""><button type="button" class="txt-btn danger" data-ph-del="${ph.id}">retirer</button></figure>`).join('');
       sh.querySelector('[data-ph-add]').hidden = photos.length >= 8;
     };
     paintPhotos();
+    // Une miniature floue de la première photo (moins d'un Ko) : l'ouverture de la page s'affiche avant que la vraie photo arrive.
+    let tinyOf = '';
+    const makeTiny = () => {
+      const src = photos[0] ? photos[0].data : '';
+      if (src === tinyOf) return;
+      tinyOf = src;
+      if (!src) { tiny = ''; saveTiny(); return; }
+      const img = new Image();
+      img.onload = () => { if (tinyOf !== src) return; const c = document.createElement('canvas'); c.width = 32; c.height = Math.max(1, Math.round(32 * img.naturalHeight / img.naturalWidth)); c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); tiny = c.toDataURL('image/jpeg', 0.5); saveTiny(); };
+      img.src = src;
+    };
+    // Les photos sont enregistrées dès qu'on les ajoute ou les retire : leur miniature aussi, sinon une photo retirée resterait en flou sur la page.
+    const saveTiny = async () => {
+      const want = tiny && photos.length ? tiny : '', cur = pageOf(g);
+      if ((cur.tiny || '') === want) return;
+      const next = { ...cur };
+      if (want) next.tiny = want; else delete next.tiny;
+      const profile = { ...profOf(g) };
+      if (Object.keys(next).length) profile.page = next; else delete profile.page;
+      try { await S.store.saveGroupProfile(g.id, g.memo, g.cover, profile); g.profile = profile; } catch (e) { console.error(e); }
+    };
+    makeTiny();
+    const trkBox = sh.querySelector('#kTracks'), trkSel = sh.querySelector('#kSong');
+    const keepTitles = () => trkBox.querySelectorAll('.trk-row').forEach(r => { tracks[+r.dataset.n].title = r.querySelector('[data-trk-title]').value.trim(); });
+    const paintTracks = () => {
+      trkBox.innerHTML = tracks.map((x, n) => { const t = takeById(x.take); return `<div class="trk-row" data-n="${n}">
+          <input class="field" data-trk-title maxlength="80" autocomplete="off" value="${esc(x.title)}" aria-label="Titre affiché">
+          <span class="trk-len">${t ? fmtDur(lenOf(t)) : ''}</span>
+          ${n ? '<button type="button" class="txt-btn" data-trk-up>monter</button>' : '<span class="trk-len">ouverture</span>'}
+          <button type="button" class="txt-btn danger" data-trk-del>retirer</button></div>`; }).join('');
+      const left = songs.filter(([, t]) => !tracks.some(x => x.take === t.id));
+      trkSel.innerHTML = left.map(([i, t]) => `<option value="${t.id}">${esc(ideaTitle(i))} · ${fmtDur(lenOf(t))}</option>`).join('');
+      sh.querySelector('.trk-add').hidden = tracks.length >= 5 || !left.length;
+      sh.querySelector('#kNoSong').hidden = songs.length > 0;
+    };
+    sh.querySelector('[data-trk-add]').onclick = () => {
+      keepTitles();
+      const t = takeById(trkSel.value), i = t && ideaById(t.idea_id);
+      if (!t || !i || tracks.length >= 5) return;
+      tracks.push({ take: t.id, title: ideaTitle(i) });
+      paintTracks();
+    };
+    trkBox.onclick = e => {
+      const r = e.target.closest('.trk-row');
+      if (!r || !e.target.closest('[data-trk-del], [data-trk-up]')) return;
+      keepTitles();
+      const n = +r.dataset.n;
+      if (e.target.closest('[data-trk-del]')) tracks.splice(n, 1); else tracks.splice(n - 1, 0, tracks.splice(n, 1)[0]);
+      paintTracks();
+    };
+    paintTracks();
     const file = sh.querySelector('#kFile');
     sh.querySelector('[data-ph-add]').onclick = () => file.click();
     file.onchange = async () => {
@@ -1021,7 +1454,7 @@ async function editBook(g) {
         try {
           const row = await S.store.addPhoto(g.id, await photoFrom(f), photos.reduce((m, x) => Math.max(m, x.position || 0), 0) + 1);
           photos.push(row);
-          paintPhotos();
+          paintPhotos(); makeTiny();
         } catch (e) { fail(e, isNetErr(e) ? 'Il faut du réseau pour ajouter une photo' : 'Photo refusée'); break; }
       }
     };
@@ -1029,7 +1462,7 @@ async function editBook(g) {
       const b = e.target.closest('[data-ph-del]');
       if (!b) return;
       b.disabled = true;
-      try { await S.store.deletePhoto(b.dataset.phDel); photos.splice(photos.findIndex(x => x.id === b.dataset.phDel), 1); paintPhotos(); }
+      try { await S.store.deletePhoto(b.dataset.phDel); photos.splice(photos.findIndex(x => x.id === b.dataset.phDel), 1); paintPhotos(); makeTiny(); }
       catch (err) { b.disabled = false; fail(err, 'Retrait impossible'); }
     };
     const dates = sh.querySelector('#kDates');
@@ -1043,35 +1476,79 @@ async function editBook(g) {
       for (const [k, id] of [['tagline', 'kTagline'], ['bio', 'kBio'], ['video', 'kVideo'], ['booking', 'kBooking']]) if (val(id)) out[k] = val(id);
       if (!sh.querySelector('#kLineup').checked) out.lineup = false;
       const list = [...dates.querySelectorAll('.dt-row')].map(r => Object.fromEntries([...r.querySelectorAll('[data-dt]')].map(i => [i.dataset.dt, i.value.trim()]))).filter(x => x.d && x.where);
-      if (list.length) out.dates = list.slice(0, 40).map(x => (x.url ? x : { d: x.d, where: x.where }));
+      if (list.length) out.dates = list.slice(0, 40).map(x => { const d = { d: x.d, where: x.where }; if (/^\d{2}:\d{2}$/.test(x.h || '')) d.h = x.h; if (x.url) d.url = x.url; return d; });
+      keepTitles();
+      if (tracks.length) out.tracks = tracks.map(x => ({ take: x.take, title: x.title }));
+      if (tiny && photos.length) out.tiny = tiny;
       return out;
     };
-    sh.querySelector('[data-preview]').onclick = () => showBandPage({ ...publicView(g), page: read() }, true, photos.map(x => x.data));
+    // L'aperçu sert aussi d'essayage : le modèle et la couleur choisis dedans reviennent ici.
+    sh.querySelector('[data-preview]').onclick = () => { const now = read(); showBandPage({ ...publicView(g), page: now }, { preview: true, photos: photos.map(x => x.data), tracks: tracksView(g, now.tracks), sign: signMine,
+      link: g.public_slug ? pageLink(g.public_slug) : '', onPick: (t, a) => { tpl = t; accent = a; paintTpl(); paintAccent(); } }); };
     sh.querySelector('[data-x]').onclick = () => close(null);
-    sh.querySelector('[data-ok]').onclick = () => close(read());
+    sh.querySelector('[data-ok]').onclick = async e => {
+      const btn = e.currentTarget, now = read();
+      const profile = { ...profOf(g) };
+      if (Object.keys(now).length) profile.page = now; else delete profile.page;
+      if (JSON.stringify(profile).length > 18500) { toast('Le book est trop long pour être enregistré : raccourcis la biographie'); return; }
+      btn.disabled = true; btn.textContent = 'Enregistrement…';
+      try { await S.store.saveGroupProfile(g.id, g.memo, g.cover, profile); g.profile = profile; close(true); }
+      catch (err) { btn.disabled = false; btn.textContent = 'Enregistrer'; fail(err, isNetErr(err) ? 'Il faut du réseau pour enregistrer le book' : 'Enregistrement impossible'); }
+    };
   });
   if (!v) return;
-  const before = g.profile;
-  const profile = { ...profOf(g) };
-  if (Object.keys(v).length) profile.page = v; else delete profile.page;
-  g.profile = profile;
   render();
-  try { await S.store.saveGroupProfile(g.id, g.memo, g.cover, profile); toast(g.public_slug ? 'Book enregistré, la page est à jour' : 'Book enregistré'); }
-  catch (e) { g.profile = before; render(); fail(e, isNetErr(e) ? 'Il faut du réseau pour modifier le book' : 'Enregistrement impossible'); }
+  toast(g.public_slug ? 'Book enregistré, la page est à jour' : 'Book enregistré');
 }
 // Un visiteur arrive par l'adresse du groupe : il ne voit que la page, pas l'appli.
+// La première image doit arriver entière : le texte, la police du modèle et l'ouverture ensemble, puis le reste sous l'ouverture.
 async function openPublicPage(raw) {
   const slug = slugify(raw);
-  showBandPage({ name: '', page: {} });
-  let b = null, cloud = null;
-  try { cloud = new CloudStore(loadConfig()); await cloud.init(); b = slug ? await cloud.publicBand(slug) : null; } catch (e) { console.error(e); }
-  if (b && b.name) document.title = b.name;
-  showBandPage(b && b.name ? b : null);
-  if (!b || !b.name) return;
-  // Les photos arrivent après le texte : la page s'affiche tout de suite.
+  const el = bandShell();
+  el.hidden = false;
+  document.body.classList.add('paging');
+  const sleep = (ms, v = null) => new Promise(r => setTimeout(() => r(v), ms));
+  const key = 'rec.page.' + slug, link = pageLink(slug);
+  let cloud = null;
+  const sign = t => cloud.trackUrl(t.path);
+  // Déjà venu : on repeint tout de suite ce que l'appareil a gardé, même sans réseau.
+  let kept = null;
+  try { kept = JSON.parse(localStorage.getItem(key)); } catch {}
+  if (!kept || !kept.b || !kept.b.name) kept = null;
+  if (kept) { document.title = kept.b.name; showBandPage(kept.b, { tracks: Array.isArray(kept.tracks) ? kept.tracks : [], hero: kept.hero || '', link, sign }); }
+  let b = null, heroP = null, tracksP = null, down = false;
+  try {
+    cloud = new CloudStore(loadConfig());
+    await cloud.init();
+    if (slug) {
+      heroP = cloud.publicHero(slug).then(x => (isCover(x) ? x : '')).catch(() => null); // '' : pas de photo ; null : pas de réponse
+      tracksP = cloud.publicTracks(slug).then(x => (Array.isArray(x) ? x : [])).catch(() => []);
+      b = await cloud.publicBand(slug);
+    }
+  } catch (e) { console.error(e); down = true; if (kept) return; }
+  if (!b || !b.name) { if (!down) { try { localStorage.removeItem(key); } catch {} } showBandPage(null, { offline: down }); return; }
+  document.title = b.name;
+  const hasTiny = isCover(b.page && b.page.tiny);
+  const [tracks, hero] = await Promise.all([
+    Promise.race([tracksP, sleep(700)]),
+    Promise.race([heroP, sleep(hasTiny ? 80 : 1300)]), // sans miniature, on laisse un peu de temps à la vraie photo
+    Promise.race([fontReady(tplOf(b.page)), sleep(900)]),
+  ]);
+  const fresh = !kept || JSON.stringify(kept.b) !== JSON.stringify(b);
+  const known = h => (h != null ? { hero: h, noPhoto: h === '' } : {});
+  if (fresh) showBandPage(b, { tracks: tracks || (kept && BP.o.tracks) || [], hero: (kept && kept.hero) || '', ...known(hero), link, sign, again: !!kept });
+  else if (tracks || hero != null) bandRefresh({ ...(tracks ? { tracks } : {}), ...known(hero) });
+  // La suite arrive sous l'ouverture, sans la toucher.
+  const all = tracks || await tracksP;
+  if (!tracks) bandRefresh({ tracks: all });
+  const pic = hero != null ? hero : await heroP;
+  if (hero == null && pic != null) bandRefresh(known(pic));
+  const keep = h => { try { localStorage.setItem(key, JSON.stringify({ b, tracks: all.map(t => ({ ...t, url: undefined, retried: undefined })), hero: h })); return true; } catch { return false; } };
+  if (!keep(pic && pic.length < 300000 ? pic : '')) keep('');
+  if (all.length) cloud.trackUrls(all.map(t => t.path)).then(urls => all.forEach(t => { if (urls[t.path]) t.url = urls[t.path]; })).catch(e => console.error(e));
   try {
     const photos = await cloud.publicPhotos(slug);
-    if (Array.isArray(photos) && photos.length) { const el = $('#bandpage'); showBandPage(b, false, photos, true); }
+    if (Array.isArray(photos) && photos.length) bandRefresh({ photos });
   } catch (e) { console.error(e); }
 }
 // Depuis la fiche du groupe : l'adresse à partager, son QR code, et l'aperçu.
@@ -1081,7 +1558,7 @@ async function sharePage(g) {
     <div class="qr-big">${QR.svg(link)}</div><p class="qr-link">${esc(link.replace(/^https?:\/\//, ''))}</p>
     <div class="row"><button class="btn" data-see>Voir la page</button><button class="btn primary" data-copy>Copier le lien</button></div>`,
   (sh, close) => { sh.querySelector('[data-see]').onclick = () => close('see'); sh.querySelector('[data-copy]').onclick = () => close('copy'); });
-  if (v === 'see') showBandPage(publicView(g), true, (await photosOf(g)).map(x => x.data));
+  if (v === 'see') showBandPage(publicView(g), { preview: true, photos: (await photosOf(g)).map(x => x.data), tracks: tracksView(g, pageOf(g).tracks), sign: signMine, link });
   if (v === 'copy') { try { await navigator.clipboard.writeText(link); toast('Lien copié'); } catch { await promptText('Copie ce lien', link); } }
 }
 // Le lien du groupe : sa page publique si elle est ouverte, sinon le premier de la case « Liens ». C'est lui que le QR code ouvre.

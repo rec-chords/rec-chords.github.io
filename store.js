@@ -300,6 +300,14 @@ class CloudStore {
   async addPhoto(gid, data, position) { const rows = await this._check(this.sb.from('group_photos').insert({ group_id: gid, data, position }).select()); return rows[0]; }
   deletePhoto(id) { return this._check(this.sb.from('group_photos').delete().eq('id', id)); }
   publicPhotos(slug) { return this._check(this.sb.rpc('public_photos', { slug })); }
+  publicHero(slug) { return this._check(this.sb.rpc('public_hero', { slug })); }
+  // Les adresses de lecture de plusieurs prises, d'un coup : { chemin: adresse }.
+  async trackUrls(paths) {
+    const rows = await this._check(this.sb.storage.from('takes').createSignedUrls(paths, 3600));
+    return Object.fromEntries((rows || []).filter(r => r && r.signedUrl && !r.error).map(r => [r.path, r.signedUrl]));
+  }
+  publicTracks(slug) { return this._check(this.sb.rpc('public_tracks', { slug })); }
+  async trackUrl(path) { const d = await this._check(this.sb.storage.from('takes').createSignedUrl(path, 3600)); return d.signedUrl; }
   publicBand(slug) { return this._check(this.sb.rpc('public_band', { slug })); }
   deleteGroup(id) { return this._check(this.sb.from('groups').delete().eq('id', id)); }
   removeMember(groupId, userId) { return this._check(this.sb.from('group_members').delete().eq('group_id', groupId).eq('user_id', userId)); }

@@ -57,16 +57,18 @@ language sql stable security definer set search_path = public as $$
 $$;
 
 -- Fichier audio d'une prise rangée dans une idée d'un de mes groupes ?
+-- Le fichier doit être dans le dossier de l'auteur de la prise : sans ça, n'importe qui pourrait déclarer une prise
+-- pointant sur le fichier d'un autre et s'en ouvrir l'accès.
 create or replace function public.can_read_take_file(obj text) returns boolean
 language sql stable security definer set search_path = public as $$
   select exists (
-    select 1 from takes t where t.path = obj and public.is_member(public.idea_group(t.idea_id)));
+    select 1 from takes t where t.path = obj and split_part(t.path, '/', 1) = t.user_id::text and public.is_member(public.idea_group(t.idea_id)));
 $$;
 
 create or replace function public.can_admin_take_file(obj text) returns boolean
 language sql stable security definer set search_path = public as $$
   select exists (
-    select 1 from takes t where t.path = obj and public.is_admin(public.idea_group(t.idea_id)));
+    select 1 from takes t where t.path = obj and split_part(t.path, '/', 1) = t.user_id::text and public.is_admin(public.idea_group(t.idea_id)));
 $$;
 
 -- Créer un groupe : génère le code d'invitation et inscrit le créateur comme admin.
