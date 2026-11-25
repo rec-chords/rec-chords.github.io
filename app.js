@@ -387,6 +387,8 @@ function takesHtml(list) {
   }
   return out.join('');
 }
+// Le médiator : la poignée des modules, sur l'accueil comme sur la page publique d'un groupe.
+const PICK = '<svg viewBox="0 0 24 24"><path d="M12 21.5c-1.2 0-2.2-.8-3.2-2.3C6.6 16 4 11.6 4 8.2 4 4.9 7.3 3 12 3s8 1.9 8 5.2c0 3.4-2.6 7.8-4.8 11-1 1.5-2 2.3-3.2 2.3z"/><g class="nubs"><circle cx="8.6" cy="8" r="1.15"/><circle cx="12" cy="8" r="1.15"/><circle cx="15.4" cy="8" r="1.15"/><circle cx="10.3" cy="11.6" r="1.15"/><circle cx="13.7" cy="11.6" r="1.15"/><circle cx="12" cy="15.2" r="1.15"/></g></svg>';
 function blockHtml(idea, list, full = false) {
   if (!idea) {
     return `<section class="block inbox" data-drop="inbox">
@@ -406,7 +408,7 @@ function blockHtml(idea, list, full = false) {
   const open = full || (long && UNFOLDED.has(idea.id));
   return `<section class="block ${full ? 'in-album' : ''}" data-drop="${idea.id}">
     <div class="block-head">
-      <span class="grip" title="Glisser vers un onglet" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 21.5c-1.2 0-2.2-.8-3.2-2.3C6.6 16 4 11.6 4 8.2 4 4.9 7.3 3 12 3s8 1.9 8 5.2c0 3.4-2.6 7.8-4.8 11-1 1.5-2 2.3-3.2 2.3z"/><g class="nubs"><circle cx="8.6" cy="8" r="1.15"/><circle cx="12" cy="8" r="1.15"/><circle cx="15.4" cy="8" r="1.15"/><circle cx="10.3" cy="11.6" r="1.15"/><circle cx="13.7" cy="11.6" r="1.15"/><circle cx="12" cy="15.2" r="1.15"/></g></svg></span>
+      <span class="grip" title="Glisser vers un onglet" aria-hidden="true">${PICK}</span>
       <h3 class="block-title ${idea.title ? '' : 'placeholder'}" data-action="rename" data-idea="${idea.id}">${esc(ideaTitle(idea))}</h3>
       <button class="star ${idea.starred ? 'on' : ''}" data-action="star" data-idea="${idea.id}" aria-label="Favori">${idea.starred ? '★' : '☆'}</button>
       ${list.filter(t => !baseOf(t) && !superseded(t)).length > 1 ? `<button class="txt-btn" data-action="play-all" data-idea="${idea.id}">écouter</button>` : ''}
@@ -780,35 +782,53 @@ const linkRows = text => String(text || '').split('\n').map(line => {
 }).filter(Boolean);
 // Ce que la page montre : la même forme que ce que le serveur renvoie au public.
 const publicView = g => { const p = profOf(g); return { name: g.name, slug: g.public_slug || '', cover: g.cover, memo: g.memo, style: p.style, city: p.city, links: p.links, page: pageOf(g), lineup: lineupOf(g).map(m => ({ name: m.name, inst: m.inst })) }; };
-// Les modèles : [clé, nom, fond, texte, accent, polices Google]. « studio » est le modèle de Rec.
+// Les modèles : [clé, nom, fond, texte, accent]. « studio » est le langage de Rec. et vit dans styles.css ;
+// les autres redessinent les mêmes pièces (façade, potards, grille, cassette, pads, magnéto) avec le matériel de leur musique, dans book/<clé>.css.
 const TEMPLATES = [
-  ['studio', 'Studio', '#0b0b0d', '#f1f1f3', '#7c6cf6', ''],
-  ['rock', 'Rock', '#0e0e0e', '#f4f1ea', '#e5383b', 'Bebas+Neue&family=Inter:wght@400;600'],
-  ['punk', 'Punk', '#efe9dc', '#111111', '#ff2d6f', 'Permanent+Marker&family=Special+Elite'],
-  ['metal', 'Metal', '#050505', '#d8d8d8', '#b10f1f', 'Pirata+One&family=Barlow+Condensed:wght@400;600'],
-  ['jazz', 'Jazz', '#0d1320', '#efe6d2', '#d6a650', 'Playfair+Display:ital,wght@0,500;0,700;1,500&family=DM+Sans:wght@400;500'],
-  ['classique', 'Classique', '#f6f1e6', '#221d17', '#7b1e2b', 'Cormorant+Garamond:ital,wght@0,400;0,600;1,400'],
-  ['rap', 'Rap', '#0a0a0a', '#ffffff', '#ffd60a', 'Anton&family=Space+Grotesk:wght@400;600'],
-  ['pop', 'Pop', '#fff4f9', '#2b1b3d', '#ff4fa3', 'Fredoka:wght@400;600'],
-  ['kpop', 'K-pop', '#ddd2ff', '#1d1147', '#7c3aed', 'Unbounded:wght@500;800&family=Poppins:wght@400;600'],
+  ['studio', 'Studio', '#0b0b0d', '#f1f1f3', '#7c6cf6'],
+  ['rock', 'Rock', '#0e0e0e', '#f4f1ea', '#e5383b'],
+  ['punk', 'Punk', '#efe9dc', '#111111', '#ff2d6f'],
+  ['metal', 'Metal', '#070708', '#e8e9ec', '#e11d2a'],
+  ['jazz', 'Jazz', '#0d1320', '#efe6d2', '#c2a46e'],
+  ['classique', 'Classique', '#f6f1e6', '#221d17', '#7b1e2b'],
+  ['rap', 'Rap', '#0a0a0a', '#ffffff', '#ffd60a'],
+  ['pop', 'Pop', '#f5f3ee', '#1d1c1a', '#ff5a36'],
+  ['kpop', 'K-pop', '#f5f4f7', '#141318', '#ff4d8d'],
 ];
-const tplOf = page => (TEMPLATES.find(t => t[0] === (page && page.template)) || TEMPLATES[0]);
-function loadTplFont(tpl) {
-  if (!tpl[5] || document.getElementById('tplfont-' + tpl[0])) return;
-  const l = document.createElement('link');
-  l.id = 'tplfont-' + tpl[0]; l.rel = 'stylesheet';
-  l.href = `https://fonts.googleapis.com/css2?family=${tpl[5]}&display=swap`;
-  document.head.append(l);
+const BOOK_V = '66'; // à changer quand une feuille book/*.css change, pour que les visiteurs reçoivent la nouvelle
+// Les modèles sont rangés pour l'instant : toutes les pages de groupe parlent le langage de l'accueil de Rec.
+// Le choix fait par un groupe reste enregistré. Les feuilles de book/ habillaient l'ancienne mise en page (façade d'ampli, cassette) : à reprendre avant de remettre true.
+const MODELES = false;
+const tplOf = page => (MODELES && TEMPLATES.find(t => t[0] === (page && page.template))) || TEMPLATES[0];
+// La feuille du modèle (et ses polices), chargée à la demande. La promesse se tient quand elle est prête, ou tout de suite pour Studio.
+const TPL_READY = new Map();
+function tplReady(tpl) {
+  if (tpl[0] === 'studio') return Promise.resolve();
+  if (!TPL_READY.has(tpl[0])) {
+    TPL_READY.set(tpl[0], new Promise(done => {
+      const l = document.createElement('link');
+      l.id = 'tplcss-' + tpl[0]; l.rel = 'stylesheet';
+      l.href = `book/${tpl[0]}.css?v=${BOOK_V}`;
+      const fonts = () => (document.fonts && document.fonts.ready ? document.fonts.ready.then(done, done) : done());
+      l.addEventListener('load', () => requestAnimationFrame(fonts), { once: true });
+      l.addEventListener('error', () => { TPL_READY.delete(tpl[0]); l.remove(); done(); }, { once: true });
+      document.head.append(l);
+    }));
+  }
+  return TPL_READY.get(tpl[0]);
 }
 const youtubeId = u => (String(u || '').match(/(?:youtu\.be\/|[?&]v=|\/embed\/|\/shorts\/|\/live\/)([\w-]{11})/) || [])[1] || '';
 const datesOf = page => (Array.isArray(page && page.dates) ? page.dates : []).filter(x => x && /^\d{4}-\d{2}-\d{2}$/.test(x.d || '') && x.where).sort((x, y) => x.d.localeCompare(y.d));
 // Le « jour de scène » : un concert ne bascule pas au lendemain à minuit, on décale de cinq heures.
 const today = () => { const n = new Date(Date.now() - 5 * 3600e3); return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`; };
 const paras = text => esc(text).split(/\n{2,}/).map(x => `<p>${x.replace(/\n/g, '<br>')}</p>`).join('');
-/* La page est composée comme le site du groupe : une ouverture plein écran, un bandeau défilant, un menu, des rubriques numérotées, une fin.
-   Tous les blocs partagent le même cadre (.bp-panel) ; un modèle ne règle que des variables.
+/* La page publique d'un groupe parle le langage de l'accueil de Rec. : la barre du haut, la fiche du groupe,
+   puis des modules à médiator (écouter, les concerts, le groupe, les photos), et le magnéto en bas pour écouter.
+   L'essentiel tient au premier écran ; le reste vient en descendant.
    L'état de la page ouverte vit ici, hors du HTML : un nouveau rendu ne coupe ni la musique ni le lecteur. */
-const BP = { b: null, o: {}, audio: null, cur: null, idx: -1, deck: null, raf: 0, level: 0, io: null, spy: null, after: false, wait: false, lock: false, swiped: 0, theme0: null, nextLabel: '' };
+const BP = { b: null, o: {}, audio: null, cur: null, idx: -1, deck: null, raf: 0, level: 0, after: false, wait: false, lock: false, swiped: 0, theme0: null, media: false, opener: null, inert: [], loaded: null };
+// La barre du haut de Rec. : la marque, et partager quand la page a une adresse.
+const bandTopHtml = share => `<header class="topbar bp-top"><a class="brand" href="${esc(location.pathname)}">Rec<i>.</i></a>${share ? '<button type="button" class="txt-btn" data-share>partager</button>' : ''}</header>`;
 const trackLen = t => Math.max(0, cutOut(t) - cutIn(t));
 const trackEnd = (t, a) => cutOut(t, a && isFinite(a.duration) && a.duration > 0 ? a.duration : (t.duration || 1e9));
 const canPlay = t => { try { const a = document.createElement('audio'); const m = String(t.mime || ''); return !m || !!a.canPlayType(m) || !!a.canPlayType(m.split(';')[0]); } catch { return true; } };
@@ -830,97 +850,105 @@ function bandMoment(page, forceLive) {
   const past = dates.filter(x => x.d < now).reverse();
   const wait = next[0] ? gap(next[0].d, now) : -1;
   const soon = wait === 0 ? 'Ce soir' : wait === 1 ? 'Demain' : wait > 1 ? `Dans ${wait} jours` : '';
-  const head = wait >= 0 && wait <= 7 ? [soon, next[0].where] : past[0] && gap(now, past[0].d) === 1 ? ['Hier soir', past[0].where] : null;
   const day = x => new Date(x.d + 'T12:00:00');
   const label = next[0] ? `${day(next[0]).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })} · ${next[0].where}` : '';
-  return { next, past: past.slice(0, 6), wait, soon, live: wait === 0, head, day, label };
+  return { next, past: past.slice(0, 6), wait, soon, live: wait === 0, day, label };
 }
 function bandState() {
   const b = BP.b || {}, o = BP.o, page = b.page && typeof b.page === 'object' ? b.page : {};
   const photos = o.photos || [];
-  return { m: bandMoment(page, o.live), photos, hero: photos[0] || (isCover(o.hero) ? o.hero : ''), tiny: !o.noPhoto && isCover(page.tiny) ? page.tiny : '', tracks: o.tracks || [], link: o.link || '' };
+  return { m: bandMoment(page, o.live), photos, hero: photos[0] || (isCover(o.hero) ? o.hero : ''), tracks: o.tracks || [], link: o.link || '' };
 }
-const bandCtaHtml = st => {
-  const first = st.tracks.findIndex(canPlay);
-  return (first >= 0 ? `<button type="button" class="bp-listen" data-trk="${first}"><i></i><span>Écouter</span><em>${esc(st.tracks[first].title)} · ${fmtDur(trackLen(st.tracks[first]))}</em></button>` : '') +
-    (st.m.live ? '<button type="button" class="bp-listen" data-glow><i></i><span>Lumière</span></button>' : '');
-};
+// Les liens du groupe : ceux qu'il a donnés, la vidéo (hors YouTube, jouée dans la page) et le contact.
+function bandLinks(b, page) {
+  const video = youtubeId(page.video) ? '' : urlIn(String(page.video || '').trim());
+  const mail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(page.booking || '') ? page.booking : '';
+  return linkRows(b.links)
+    .concat(video ? [{ url: video, label: 'Vidéo', sub: linkLabel(video) }] : [])
+    .concat(mail ? [{ url: 'mailto:' + mail, label: 'Contact', sub: mail, mail: true }] : []);
+}
+// L'ouverture : la fiche du groupe telle qu'elle est sur l'accueil (image, nom, style, description, liens), puis le prochain concert.
 function bandHeroHtml(b, st) {
   const page = b.page && typeof b.page === 'object' ? b.page : {};
-  const head = st.m.head ? `${st.m.head[0]} · ${st.m.head[1]}` : [b.style, b.city].filter(Boolean).join(' · ');
-  return `<header class="bp-hero ${st.hero || st.tiny ? 'has-photo' : ''}">
-      ${st.hero || st.tiny ? `<button type="button" class="bp-hero-img" data-ph aria-label="Agrandir la photo"><span>${st.tiny ? `<img class="tiny" src="${st.tiny}" alt="">` : ''}${st.hero ? `<img class="full on" src="${st.hero}" alt="">` : ''}</span></button>` : ''}
-      <div class="bp-hero-in">
-        ${isCover(b.cover) ? `<img class="bp-cover" src="${b.cover}" alt="">` : ''}
-        <div class="bp-id">
-          ${head ? `<p class="bp-tag ${st.m.live ? 'live' : ''}"><i></i><span>${esc(head)}</span></p>` : ''}
-          <h1>${esc(b.name || '')}</h1>
-          ${page.tagline ? `<p class="bp-line">${esc(page.tagline)}</p>` : ''}
-          <p class="bp-cta">${bandCtaHtml(st)}</p>
+  const m = st.m, nx = m.next[0];
+  const who = [b.style, b.city].filter(Boolean).join(' · ');
+  const memo = String(b.memo || '').trim();
+  const tix = nx ? urlIn(String(nx.url || '').trim()) : '';
+  const when = !nx ? '' : m.live ? 'ce soir' : m.wait === 1 ? 'demain' : m.day(nx).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+  const links = bandLinks(b, page);
+  return `<section class="hero bp-hero">
+      <div class="band open">
+        <div class="band-top">
+          ${isCover(b.cover) ? `<img class="band-cover" src="${b.cover}" alt="">` : ''}
+          <div class="band-text">
+            <h1 class="bp-name">${esc(b.name || '')}</h1>
+            ${who ? `<p class="band-tag">${esc(who)}</p>` : ''}
+          </div>
         </div>
+        ${page.tagline ? `<p class="bp-line">${esc(page.tagline)}</p>` : ''}
+        ${memo ? `<div class="band-memo">${linkify(memo)}</div>` : ''}
+        ${links.length ? `<p class="band-acts">${links.map(l => `<a class="txt-btn" href="${esc(l.url)}"${l.mail ? '' : ' target="_blank" rel="noopener noreferrer"'}>${esc(l.label)}</a>`).join('')}</p>` : ''}
       </div>
-    </header>`;
+      ${nx ? `<p class="bp-next ${m.live ? 'live' : ''}">${m.live ? '<i class="bp-led" aria-hidden="true"></i>' : ''}<span>${m.live ? 'en concert' : 'prochain concert'}</span><button type="button" data-go="bp-concerts"><b>${esc(when)}</b> · ${esc(nx.where)}</button>${tix ? `<a class="txt-btn accent" href="${esc(tix)}" target="_blank" rel="noopener noreferrer">billets</a>` : ''}${m.live ? '<button type="button" class="txt-btn accent" data-glow title="Ton écran à la couleur de la soirée, à lever pendant le concert">allumer mon écran</button>' : ''}</p>` : ''}
+    </section>`;
 }
+// Le reste, en modules comme les idées de l'accueil : écouter, les concerts, le groupe, les photos, la vidéo.
 function bandRestHtml(b, st) {
   const page = b.page && typeof b.page === 'object' ? b.page : {};
   const m = st.m;
   const lineup = page.lineup === false ? [] : (Array.isArray(b.lineup) ? b.lineup : []).filter(x => x && (x.name || x.inst));
-  const links = linkRows(b.links);
-  const memo = String(b.memo || '').trim();
   const bio = String(page.bio || '').trim();
   const yt = youtubeId(page.video);
-  const video = yt ? '' : urlIn(String(page.video || '').trim());
+  const mail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(page.booking || '') ? page.booking : '';
+  const year = new Date().getFullYear();
   const hour = x => (/^\d{2}:\d{2}$/.test(x.h || '') ? x.h.replace(/^0/, '').replace(':', ' h ').replace(/ 00$/, '') : '');
+  const mod = (id, title, sub, body) => `<section class="block bp-mod" id="bp-${id}">
+      <div class="block-head"><span class="grip" aria-hidden="true">${PICK}</span><h2 class="block-title">${title}</h2></div>
+      ${sub ? `<p class="block-sub"><span>${esc(sub)}</span></p>` : ''}${body}</section>`;
+  const parts = [];
+  // Écouter : chaque morceau est une prise de l'accueil (son numéro, son titre, sa forme d'onde). Le médiator s'allume pendant l'écoute.
+  const playable = st.tracks.filter(canPlay);
+  if (st.tracks.length) parts.push(mod('ecouter', 'Écouter', playable.length ? `${morceaux(playable.length)} · ${fmtDur(playable.reduce((sum, t) => sum + trackLen(t), 0))}` : '',
+    `<ol class="takes">${st.tracks.map((t, n) => { const ok = canPlay(t); return `<li class="take bp-trk ${ok ? '' : 'mute'}" data-n="${n}">
+      <button type="button" class="play" ${ok ? `data-trk="${n}"` : 'disabled'} aria-label="Écouter « ${esc(t.title)} »"><span class="num">${String(n + 1).padStart(2, '0')}</span><span class="pi">${ICONS.play}</span></button>
+      <div class="take-main">
+        <div class="take-line"><span class="take-title" ${ok ? `data-trk="${n}"` : ''}>${esc(t.title)}</span><span class="take-meta">${fmtDur(trackLen(t))}</span></div>
+        <div class="take-note">${esc(ok ? trackNote(t) : 'Format non lu par cet appareil')}</div>
+        ${ok ? `<div class="wave" data-seek="${n}">${waveSvg(t, 'w-base')}${waveSvg(t, 'w-fill')}</div>` : ''}
+      </div></li>`; }).join('')}</ol>`));
+  // Les concerts : une ligne par date, comme une prise. La date à la place du numéro, la salle en titre, le jour et l'heure à droite.
   const dateLi = (x, cls, n) => {
     const d = m.day(x), u = urlIn(String(x.url || '').trim());
-    const said = [cls === 'next' ? (m.live ? 'Ce soir' : `Prochain concert · ${m.soon.toLowerCase()}`) : '', hour(x)].filter(Boolean).join(' · ');
-    return `<li class="${cls}"><time datetime="${x.d}"><b>${String(d.getDate()).padStart(2, '0')}</b><span>${esc(d.toLocaleDateString('fr-FR', { month: 'short', year: 'numeric' }))}</span></time><span class="where">${said ? `<em>${esc(said)}</em>` : ''}${esc(x.where)}${cls === 'old' ? '' : `<span class="acts">${u ? `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer">billets ↗</a>` : ''}<button type="button" data-ics="${n}">agenda</button><a href="https://www.google.com/maps/search/?api=1&amp;query=${encodeURIComponent(x.where)}" target="_blank" rel="noopener noreferrer">itinéraire</a></span>`}</span></li>`;
+    // L'heure à droite, comme la durée d'une prise ; la date en toutes lettres en dessous, l'année seulement si ce n'est pas celle-ci.
+    const other = d.getFullYear() !== year;
+    const meta = cls === 'old' ? (other ? String(d.getFullYear()) : '') : hour(x);
+    const day = d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', ...(other ? { year: 'numeric' } : {}) });
+    const soon = cls === 'old' ? '' : [day, cls === 'next' ? (m.live ? 'ce soir' : m.soon.toLowerCase()) : ''].filter(Boolean).join(' · ');
+    return `<li class="take bp-date ${cls}"><time class="bp-day" datetime="${x.d}">${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}</time>
+      <div class="take-main">
+        <div class="take-line"><span class="take-title">${esc(x.where)}</span>${meta ? `<span class="take-meta">${esc(meta)}</span>` : ''}</div>
+        ${soon ? `<div class="take-note">${esc(soon)}</div>` : ''}
+        ${cls === 'old' ? '' : `<p class="bp-acts">${u ? `<a class="txt-btn accent" href="${esc(u)}" target="_blank" rel="noopener noreferrer">billets</a>` : ''}<button type="button" class="txt-btn" data-ics="${n}">agenda</button><a class="txt-btn" href="https://www.google.com/maps/search/?api=1&amp;query=${encodeURIComponent(x.where)}" target="_blank" rel="noopener noreferrer">itinéraire</a></p>`}
+      </div></li>`;
   };
-  const mail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(page.booking || '') ? page.booking : '';
-  const pics = st.photos;
-  const wide = pics.length >= 3 ? pics[1] : '';          // une grande photo en pleine largeur, au milieu de la page
-  const gal = pics.slice(wide ? 2 : 1);
-  const facts = [b.style && ['Style', b.style], b.city && ['Ville', b.city], lineup.length && ['Formation', lineup.length > 1 ? `${lineup.length} musiciens` : 'Solo'], m.label && [m.live ? 'Ce soir' : 'Prochain concert', m.label]].filter(Boolean);
-  const lineupHtml = lineup.length ? `<ol class="bp-panel bp-lineup">${lineup.map((x, n) => `<li><span>${String(n + 1).padStart(2, '0')}</span><div><b>${esc(x.name || '')}</b><em>${esc(x.inst || '')}</em></div></li>`).join('')}</ol>` : '';
-  const first = st.tracks.findIndex(canPlay);
-  const menu = [];
-  const sec = (id, title, body) => { menu.push([id, title]); return `<section class="bp-sec" id="bp-${id}"><h2>${title}</h2>${body}</section>`; };
-  const parts = [];
-  if (st.tracks.length) parts.push(sec('ecouter', 'Écouter', `<ol class="bp-panel bp-tracks">${st.tracks.map((t, n) => { const ok = canPlay(t); return `<li><button type="button" class="bp-trk ${ok ? '' : 'mute'}" data-trk="${n}" ${ok ? '' : 'disabled'}><span class="n">${String(n + 1).padStart(2, '0')}</span><span class="t"><b>${esc(t.title)}</b><em>${esc(ok ? trackNote(t) : 'Format non lu par cet appareil')}</em></span>${waveSvg(t, 'w')}<span class="d">${fmtDur(trackLen(t))}</span></button></li>`; }).join('')}</ol>`));
-  if (bio || lineupHtml) parts.push(sec('groupe', bio ? 'Le groupe' : 'Line-up', `<div class="bp-two ${bio && lineupHtml ? '' : 'solo'}">${bio ? `<div class="bp-text">${paras(bio)}</div>` : ''}${lineupHtml}</div>`));
-  if (wide) parts.push(`<button type="button" class="bp-break" data-ph aria-label="Agrandir la photo"><img src="${wide}" alt="" loading="lazy">${page.tagline ? `<span>${esc(page.tagline)}</span>` : ''}</button>`);
-  if (gal.length) parts.push(sec('photos', 'Photos', `<div class="bp-gal n${Math.min(gal.length, 7)}">${gal.map(src => `<button type="button" class="bp-panel" data-ph aria-label="Agrandir la photo"><img src="${src}" alt="" loading="lazy"></button>`).join('')}</div>`));
-  if (yt) parts.push(sec('video', 'En vidéo', `<div class="bp-panel bp-frame"><iframe src="https://www.youtube-nocookie.com/embed/${yt}" title="Vidéo du groupe" loading="lazy" allow="accelerometer; encrypted-media; gyroscope; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe></div>`));
-  else if (video) parts.push(sec('video', 'En vidéo', `<div class="bp-grille"><a class="bp-panel bp-link" href="${esc(video)}" target="_blank" rel="noopener noreferrer"><b>Voir la vidéo</b><small>${esc(linkLabel(video))}</small><span aria-hidden="true">↗</span></a></div>`));
-  if (m.next.length || m.past.length) parts.push(sec('concerts', 'Concerts', `${m.next.length ? `<ol class="bp-panel bp-dates">${m.next.map((x, n) => dateLi(x, n ? '' : 'next', n)).join('')}</ol>` : '<p class="bp-quiet">Pas de date annoncée pour le moment.</p>'}
-        ${m.past.length ? `<h3>Déjà joué</h3><ol class="bp-panel bp-dates">${m.past.map(x => dateLi(x, 'old', -1)).join('')}</ol>` : ''}`));
-  if (links.length) parts.push(sec('suivre', 'Suivre', `<div class="bp-grille">${links.map(l => `<a class="bp-panel bp-link" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer"><b>${esc(l.label)}</b><small>${esc(l.sub)}</small><span aria-hidden="true">↗</span></a>`).join('')}</div>`));
-  if (mail) parts.push(sec('contact', 'Contact', `<div class="bp-panel bp-contact"><span>Booking et presse</span><a href="mailto:${esc(mail)}">${esc(mail)}</a></div>`));
-  const tick = [b.name, b.style, b.city, m.label && (m.live ? `Ce soir : ${m.next[0].where}` : `Prochain concert : ${m.label}`), page.tagline].filter(Boolean);
-  const run = tick.map(x => `<span>${esc(x)}</span><i>✦</i>`).join('');
-  // La fin de la page : le nom revient, un seul geste mis en avant, et le partage.
-  const tix = m.next[0] ? urlIn(String(m.next[0].url || '').trim()) : '';
-  const act = tix ? `<a class="bp-panel bp-link" href="${esc(tix)}" target="_blank" rel="noopener noreferrer"><b>Billets</b><small>${esc(m.label)}</small><span aria-hidden="true">↗</span></a>`
-    : first >= 0 ? `<button type="button" class="bp-panel bp-link" data-trk="${first}"><b>Écouter</b><small>${esc(st.tracks[first].title)}</small><span aria-hidden="true">▸</span></button>`
-    : links[0] ? `<a class="bp-panel bp-link" href="${esc(links[0].url)}" target="_blank" rel="noopener noreferrer"><b>${esc(links[0].label)}</b><small>${esc(links[0].sub)}</small><span aria-hidden="true">↗</span></a>` : '';
-  const credit = lineup.map(x => x.name).filter(Boolean).join(' · ');
-  BP.nextLabel = m.label;
-  return `${tick.length > 1 ? `<div class="bp-tick" aria-hidden="true"><div>${run.repeat(4)}</div></div>` : ''}
-    ${menu.length > 1 ? `<nav class="bp-nav"><b>${esc(b.name || '')}</b><div>${menu.map(([id, t]) => `<button type="button" data-go="bp-${id}">${t}</button>`).join('')}</div></nav>` : ''}
-    <div class="bp-body">
-      ${memo || facts.length > 1 ? `<div class="bp-intro ${memo && facts.length > 1 ? '' : 'solo'}">
-        ${memo ? `<p class="bp-memo">${linkify(memo)}</p>` : ''}
-        ${facts.length > 1 ? `<dl class="bp-panel bp-facts">${facts.map(([k, v]) => `<div><dt>${k}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>` : ''}</div>` : ''}
-      ${parts.join('\n')}
-    </div>
-    <section class="bp-end"><h1 class="bp-end-name" aria-hidden="true">${esc(b.name || '')}</h1>
-      ${credit ? `<p class="bp-end-credit">${esc(credit)}</p>` : ''}
-      <div class="bp-end-acts">${act}${st.link ? '<button type="button" class="bp-end-share" data-share>Partager la page</button>' : ''}</div></section>
-    <footer class="bp-foot"><a href="${esc(location.pathname)}">Rec<i>.</i></a><span>le carnet d'idées des groupes</span></footer>`;
+  if (m.next.length || m.past.length) parts.push(mod('concerts', 'Concerts', m.next.length ? '' : 'pas de date annoncée pour le moment',
+    `<ol class="takes">${m.next.map((x, n) => dateLi(x, n ? '' : 'next', n)).join('')}${m.past.length ? `<li class="bp-sep">déjà joué</li>${m.past.map(x => dateLi(x, 'old', -1)).join('')}` : ''}</ol>`));
+  // Le groupe : la biographie, puis le line-up comme sur la fiche du groupe dans l'appli.
+  const lineupHtml = lineup.length ? `<ul class="band-lineup">${lineup.map(x => `<li><b>${esc(x.name || '?')}</b><span>${esc(x.inst || '')}</span></li>`).join('')}</ul>` : '';
+  if (bio || lineupHtml) parts.push(mod('groupe', 'Le groupe', '', `${bio ? `<div class="bp-bio">${paras(bio)}</div>` : ''}${lineupHtml}`));
+  // Les photos : la première en grand, les autres par deux. Un toucher les ouvre en grand.
+  const pics = st.photos.length ? st.photos : st.hero ? [st.hero] : [];
+  if (pics.length) parts.push(mod('photos', 'Photos', '', `<div class="bp-gal">${pics.map(src => `<button type="button" class="bp-shot" data-ph aria-label="Agrandir la photo"><img src="${src}" alt="" loading="lazy"></button>`).join('')}</div>`));
+  if (yt) parts.push(mod('video', 'En vidéo', '', `<div class="bp-frame"><iframe src="https://www.youtube-nocookie.com/embed/${yt}" title="Vidéo du groupe" loading="lazy" allow="accelerometer; encrypted-media; gyroscope; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe></div>`));
+  return `<div class="board bp-board">${parts.join('\n')}</div>
+    <footer class="bp-foot">
+      ${mail ? `<span>contact <a class="txt-btn" href="mailto:${esc(mail)}">${esc(mail)}</a></span>` : ''}
+      <span><a class="brand" href="${esc(location.pathname)}">Rec<i>.</i></a> le carnet d'idées des groupes</span>
+    </footer>`;
 }
 // Les photos en grand, avec précédente et suivante (flèches, clavier, ou glissement du doigt).
 function bandZoom(el, i) {
-  const list = [...el.querySelectorAll('[data-ph] img:not(.tiny)')].map(x => x.src);
+  const list = [...el.querySelectorAll('[data-ph] img')].map(x => x.src);
   if (!list.length) return;
   i = (i + list.length) % list.length;
   let z = el.querySelector('.bp-zoom');
@@ -942,15 +970,13 @@ function bandAudio() {
   a.addEventListener('error', () => { BP.wait = false; BP.lock = false; const t = BP.cur; if (t && !t.retried && BP.o.sign) { t.retried = true; t.url = ''; const n = BP.idx; BP.idx = -1; BP.cur = null; bandPlay(n); } else bandPaintPlay(); });
   return a;
 }
+// Le magnéto de l'accueil, en bas de l'écran : le temps à gauche, écouter au milieu, le vumètre à droite.
 function bandDeck() {
   if (BP.deck) return BP.deck;
   const d = BP.deck = document.createElement('div');
-  d.className = 'bp-deck bp-panel';
+  d.className = 'rec-btn bp-mag';
   d.hidden = true;
-  d.innerHTML = `<button type="button" class="bp-deck-play" data-deck="toggle" aria-label="Lecture"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="pl" d="M8 5.5v13l11-6.5z"/><path class="pa" d="M7 5h3.6v14H7zM13.4 5H17v14h-3.6z"/></svg></button>
-    <div class="bp-deck-main"><p class="bp-deck-title"><b></b><span></span></p><div class="bp-deck-wave" data-deck="seek"></div></div>
-    <span class="bp-deck-time">0:00</span><span class="deck-meter" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></span>
-    <button type="button" class="bp-deck-next" data-deck="next" aria-label="Morceau suivant"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6v12l9-6zM16.5 6H19v12h-2.5z"/></svg></button>`;
+  d.innerHTML = `<span class="deck-time">0:00</span><button type="button" class="deck-main" data-deck aria-label="Écouter"><span class="deck-ring"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="pl" d="M8.5 5.5v13l10.5-6.5z"/><path class="pa" d="M7 5h3.6v14H7zM13.4 5H17v14h-3.6z"/></svg></span><span class="bp-mag-t">Écouter</span><span class="kbd">espace</span></button><span class="deck-meter" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></span>`;
   return d;
 }
 function bandPaintPlay() {
@@ -960,51 +986,54 @@ function bandPaintPlay() {
   const playing = !!(a && t && (BP.wait || (!a.paused && !a.ended))); // pendant le chargement, le bouton montre déjà « pause »
   el.classList.toggle('playing', playing);
   el.classList.toggle('waiting', !!t && BP.wait);
-  el.classList.toggle('decked', !!t);
-  el.querySelectorAll('.bp-trk').forEach(x => x.classList.toggle('on', !!t && +x.dataset.trk === BP.idx));
-  const said = el.querySelector('.bp-hero .bp-listen[data-trk] span');
-  if (said) said.textContent = playing ? 'En écoute' : 'Écouter';
-  const d = BP.deck;
-  if (!d) return;
+  el.querySelectorAll('.bp-trk').forEach(x => {
+    const on = !!t && +x.dataset.n === BP.idx;
+    x.classList.toggle('is-current', on);
+    x.classList.toggle('is-playing', on && playing);
+    const pi = x.querySelector('.pi'), b = x.querySelector('.play[data-trk]');
+    if (pi) pi.innerHTML = on && playing ? ICONS.pause : ICONS.play;
+    if (b) b.setAttribute('aria-label', `${on && playing ? 'Pause :' : 'Écouter'} « ${(x.querySelector('.take-title') || {}).textContent || ''} »`);
+    if (!on) { const f = x.querySelector('.w-fill'); if (f) f.style.clipPath = ''; }
+  });
+  const d = bandDeck();
   if (d.parentNode !== el) el.append(d);
-  d.hidden = !t;
-  if (!t) return;
-  d.querySelector('.bp-deck-title b').textContent = t.title;
-  d.querySelector('.bp-deck-title span').textContent = BP.wait ? 'un instant…' : BP.after && BP.nextLabel ? `Prochain concert · ${BP.nextLabel}` : (BP.b && BP.b.name) || '';
-  if (d.dataset.trk !== t.id) { d.dataset.trk = t.id; d.querySelector('.bp-deck-wave').innerHTML = waveSvg(t, 'w-base') + waveSvg(t, 'w-fill'); d.style.setProperty('--p', '0%'); }
-  d.querySelector('.bp-deck-play').setAttribute('aria-label', playing ? 'Pause' : 'Lecture');
-  d.querySelector('.bp-deck-next').hidden = (BP.o.tracks || []).filter(canPlay).length < 2;
+  d.hidden = !BP.b || !(BP.o.tracks || []).some(canPlay);
+  el.classList.toggle('decked', !d.hidden);
+  d.querySelector('.bp-mag-t').textContent = t && !BP.after ? t.title : 'Écouter';
+  d.querySelector('.deck-main').setAttribute('aria-label', playing ? `Pause : ${t.title}` : 'Écouter');
+  if (!t || BP.after) d.querySelector('.deck-time').textContent = '0:00';
 }
+// La progression se lit sur la forme d'onde du morceau en cours, comme sur l'accueil, et le temps sur le magnéto.
 function bandTick() {
-  const a = BP.audio, t = BP.cur, d = BP.deck;
-  if (!a || !t || !d) return 0;
+  const a = BP.audio, t = BP.cur, el = $('#bandpage');
+  if (!a || !t || !el || BP.loaded !== t.id) return 0; // pendant la signature d'un autre morceau, l'ancien son est encore là
   const from = cutIn(t), to = trackEnd(t, a);
   const p = Math.max(0, Math.min(1, (a.currentTime - from) / Math.max(.01, to - from)));
-  d.style.setProperty('--p', (p * 100).toFixed(2) + '%');
-  d.querySelector('.bp-deck-time').textContent = fmtDur(Math.max(0, a.currentTime - from));
+  const fill = el.querySelector(`.bp-trk[data-n="${BP.idx}"] .w-fill`);
+  if (fill) fill.style.clipPath = `inset(0 ${(100 - p * 100).toFixed(2)}% 0 0)`;
+  if (BP.deck && !BP.after) BP.deck.querySelector('.deck-time').textContent = fmtDur(Math.max(0, a.currentTime - from));
   return p;
 }
-// Tant que ça joue : la progression, le vumètre, et l'ambiance du modèle qui suit le morceau.
+// Tant que ça joue : la progression et le vumètre, qui suit le morceau.
 function bandLoop() {
   cancelAnimationFrame(BP.raf);
   const calm = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const step = now => {
     const el = $('#bandpage'), a = BP.audio, t = BP.cur;
     const meter = BP.deck && BP.deck.querySelector('.deck-meter');
-    const fx = el && el.querySelector('.bp-fx');
-    if (!el || el.hidden || !a || !t || a.paused) { BP.level = 0; setMeter(meter, 0); if (fx) fx.style.opacity = ''; return; }
+    if (!el || el.hidden || !a || !t || a.paused) { BP.level = 0; setMeter(meter, 0); return; }
     const p = bandTick(), pk = wavePeaks(t), x = p * (pk.length - 1), i = Math.floor(x);
     const v = ((pk[i] || 0) + ((pk[Math.min(pk.length - 1, i + 1)] || 0) - (pk[i] || 0)) * (x - i)) / 100;
     const lively = v * (.7 + .3 * Math.abs(Math.sin(now / 90) * Math.sin(now / 37)));
     BP.level += (lively - BP.level) * .16;
     setMeter(meter, calm ? v : Math.min(1, BP.level * 1.2));
-    if (fx && !calm) fx.style.opacity = (.42 + .58 * Math.min(1, BP.level * 1.35)).toFixed(3);
     BP.raf = requestAnimationFrame(step);
   };
   BP.raf = requestAnimationFrame(step);
 }
 function bandMedia(t) {
   if (!('mediaSession' in navigator) || !window.MediaMetadata) return;
+  BP.media = true;
   try {
     navigator.mediaSession.metadata = new MediaMetadata({ title: t.title, artist: (BP.b && BP.b.name) || '', album: 'Rec.', artwork: BP.b && isCover(BP.b.cover) ? [{ src: BP.b.cover, sizes: '360x360', type: 'image/jpeg' }] : [] });
     navigator.mediaSession.setActionHandler('play', () => { if (BP.audio) BP.audio.play().catch(() => {}); });
@@ -1031,6 +1060,7 @@ async function bandPlay(n) {
     if (!t.url) { BP.wait = false; BP.cur = null; BP.idx = -1; bandPaintPlay(); return; }
   }
   a.src = t.url;
+  BP.loaded = t.id; // le son chargé est celui de ce morceau
   try { a.currentTime = cutIn(t); } catch {}
   BP.wait = true;
   bandPaintPlay();
@@ -1055,8 +1085,9 @@ function bandNext(auto) {
 function bandStop() {
   cancelAnimationFrame(BP.raf);
   if (BP.audio) { try { BP.audio.pause(); BP.audio.removeAttribute('src'); BP.audio.load(); } catch {} }
-  BP.cur = null; BP.idx = -1; BP.after = false; BP.wait = false; BP.lock = false;
-  if (BP.deck) { BP.deck.hidden = true; delete BP.deck.dataset.trk; }
+  BP.cur = null; BP.idx = -1; BP.after = false; BP.wait = false; BP.lock = false; BP.loaded = null;
+  if (BP.deck) { BP.deck.querySelector('.deck-time').textContent = '0:00'; setMeter(BP.deck.querySelector('.deck-meter'), 0); }
+  if (BP.media) { BP.media = false; try { navigator.mediaSession.metadata = null; for (const k of ['play', 'pause', 'nexttrack']) navigator.mediaSession.setActionHandler(k, null); } catch {} }
 }
 // Les soirs de concert : l'écran à la couleur du groupe. Le rythme est calé sur l'horloge, donc toute la salle respire ensemble.
 function bandGlow(on) {
@@ -1105,8 +1136,9 @@ async function bandShare(btn) {
   const link = BP.o.link, title = (BP.b && BP.b.name) || 'Rec.';
   if (!link) return;
   if (navigator.share) { try { await navigator.share({ title, url: link }); } catch {} return; }
-  try { await navigator.clipboard.writeText(link); btn.textContent = 'Lien copié'; } catch { btn.textContent = link.replace(/^https?:\/\//, ''); }
-  setTimeout(() => { if (btn.isConnected) btn.textContent = 'Partager la page'; }, 2600);
+  const was = btn.dataset.was || (btn.dataset.was = btn.textContent);
+  try { await navigator.clipboard.writeText(link); btn.textContent = 'lien copié'; } catch { btn.textContent = link.replace(/^https?:\/\//, ''); }
+  setTimeout(() => { if (btn.isConnected) btn.textContent = was; }, 2600);
 }
 // La barre du navigateur prend la couleur du modèle ; elle reprend celle de l'appli à la fermeture.
 function bandTheme(tpl) {
@@ -1115,15 +1147,6 @@ function bandTheme(tpl) {
   if (BP.theme0 === null) BP.theme0 = meta.content;
   meta.content = tpl ? tpl[2] : BP.theme0;
   if (!tpl) BP.theme0 = null;
-}
-// La police du titre, attendue (pas longtemps) pour que le nom n'entre pas dans une police de secours.
-function fontReady(tpl) {
-  loadTplFont(tpl);
-  const link = document.getElementById('tplfont-' + tpl[0]);
-  if (!link || !document.fonts || !document.fonts.load) return Promise.resolve();
-  const name = tpl[5].split('&')[0].split(':')[0].replace(/\+/g, ' ');
-  const sheet = link.sheet ? Promise.resolve() : new Promise(r => { link.addEventListener('load', r, { once: true }); link.addEventListener('error', r, { once: true }); });
-  return sheet.then(() => document.fonts.load(`1em "${name}"`)).catch(() => {});
 }
 // L'essayage : dans l'aperçu, le groupe passe sa propre page d'un modèle à l'autre d'un toucher. Un modèle n'est que des variables : rien n'est recomposé.
 const bandTryHtml = b => { const page = (b && b.page) || {}, cur = tplOf(page)[0], acc = /^#[0-9a-f]{6}$/i.test(page.accent || '') ? page.accent : '';
@@ -1136,29 +1159,29 @@ function bandTry(btn) {
   if ('tpl' in btn.dataset) page.template = btn.dataset.tpl; else page.accent = btn.dataset.accent;
   BP.b = { ...BP.b, page };
   const tpl = tplOf(page), accent = /^#[0-9a-f]{6}$/i.test(page.accent || '') ? page.accent : '';
-  loadTplFont(tpl);
-  el.dataset.tpl = tpl[0];
   if (accent) el.style.setProperty('--accent', accent); else el.style.removeProperty('--accent');
-  bandTheme(tpl);
   el.querySelectorAll('.bp-try .tpl').forEach(x => x.classList.toggle('on', x.dataset.tpl === tpl[0]));
   el.querySelectorAll('.bp-try .swatch').forEach(x => x.classList.toggle('on', x.dataset.accent === accent));
-  if ('tpl' in btn.dataset && el.classList.contains('anim')) { // le titre rejoue son entrée dans le nouveau modèle
-    el.classList.remove('again');
-    const hero = el.querySelector('.bp-hero');
-    if (hero) hero.replaceWith(hero.cloneNode(true));
-  }
   if (BP.o.onPick) BP.o.onPick(tpl[0], accent);
+  if (!('tpl' in btn.dataset)) return;
+  tplReady(tpl).then(() => { // on attend la feuille du modèle : la page ne passe pas par un état à moitié habillé
+    if (!BP.b || tplOf(BP.b.page) !== tpl) return;
+    el.dataset.tpl = tpl[0];
+    bandTheme(tpl);
+    if (el.classList.contains('anim')) { el.classList.remove('again'); const hero = el.querySelector('.bp-hero'); if (hero) hero.replaceWith(hero.cloneNode(true)); } // la façade rejoue son entrée
+  });
 }
 function bandClose() {
   const el = $('#bandpage');
   bandStop();
-  if (BP.io) BP.io.disconnect();
-  if (BP.spy) BP.spy.disconnect();
-  BP.io = BP.spy = null;
   keepAwake(false);
   bandTheme(null);
   if (el) { el.hidden = true; el.innerHTML = ''; }
   document.body.classList.remove('paging');
+  BP.inert.forEach(x => { x.inert = false; });
+  BP.inert = [];
+  if (BP.opener && BP.opener.isConnected) BP.opener.focus();
+  BP.opener = null;
 }
 function bandShell() {
   let el = $('#bandpage');
@@ -1172,12 +1195,17 @@ function bandShell() {
     if (pick) return bandTry(pick);
     if (t.closest('[data-bp-close]')) return bandClose();
     if (t.closest('[data-bp-live]')) return showBandPage(BP.b, { ...BP.o, live: !BP.o.live, again: true });
-    const deck = t.closest('[data-deck]');
-    if (deck) {
-      const a = BP.audio, cur = BP.cur;
-      if (deck.dataset.deck === 'next') bandNext(false);
-      else if (deck.dataset.deck === 'toggle') bandPlay(BP.idx);
-      else if (a && cur) { const r = deck.getBoundingClientRect(), from = cutIn(cur); try { a.currentTime = from + Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * (trackEnd(cur, a) - from); } catch {} bandTick(); }
+    // Le magnéto : reprend le morceau en cours, ou le premier.
+    if (t.closest('[data-deck], .bp-mag')) { const first = (BP.o.tracks || []).findIndex(canPlay); return bandPlay(BP.idx >= 0 && !BP.after ? BP.idx : first); }
+    // La forme d'onde : sur le morceau en cours, on se place où l'on touche ; sur un autre, il démarre.
+    const seek = t.closest('[data-seek]');
+    if (seek) {
+      const n = +seek.dataset.seek, a = BP.audio, cur = BP.cur;
+      if (!a || !cur || n !== BP.idx || BP.after || !a.src) return bandPlay(n);
+      const r = seek.getBoundingClientRect(), from = cutIn(cur);
+      try { a.currentTime = from + Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * (trackEnd(cur, a) - from); } catch {}
+      bandTick();
+      if (a.paused && !BP.wait) bandPlay(n);
       return;
     }
     const trk = t.closest('[data-trk]');
@@ -1190,7 +1218,7 @@ function bandShell() {
     const go = t.closest('[data-go]');
     if (go) { const to = el.querySelector('#' + go.dataset.go); if (to) el.scrollTo({ top: to.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop - 76, behavior: 'smooth' }); return; }
     const ph = t.closest('[data-ph]');
-    if (ph) { const img = ph.querySelector('img:not(.tiny)'); if (img) bandZoom(el, [...el.querySelectorAll('[data-ph] img:not(.tiny)')].indexOf(img)); }
+    if (ph) { const img = ph.querySelector('img'); if (img) bandZoom(el, [...el.querySelectorAll('[data-ph] img')].indexOf(img)); }
   });
   let sx = 0;
   el.addEventListener('touchstart', e => { if (e.target.closest('.bp-zoom')) sx = e.touches[0].clientX; }, { passive: true });
@@ -1204,33 +1232,20 @@ function bandShell() {
     if (el.hidden) return;
     if (e.key === 'Escape' && el.querySelector('.bp-glow')) return bandGlow(false);
     const z = el.querySelector('.bp-zoom');
-    if (!z) return;
+    if (!z) {
+      // Espace : écouter et mettre en pause, comme le magnéto de l'appli.
+      if (e.key === 'Escape' && BP.o.preview) return bandClose(); // l'aperçu se ferme comme une feuille
+      const c = e.code === 'Space' && e.target.closest ? e.target.closest('input, textarea, select, [contenteditable], iframe, button') : null;
+      if (e.code !== 'Space' || !BP.deck || BP.deck.hidden || el.querySelector('.bp-glow') || (c && (c.matches('input, textarea, select, [contenteditable], iframe') || (el.contains(c) && c.matches(':focus-visible'))))) return;
+      e.preventDefault(); // ni le défilement, ni un bouton cliqué plus tôt ne prennent la touche
+      if (!e.repeat) BP.deck.querySelector('.deck-main').click();
+      return;
+    }
     if (e.key === 'Escape') z.remove();
     if (e.key === 'ArrowLeft') bandZoom(el, +z.dataset.i - 1);
     if (e.key === 'ArrowRight') bandZoom(el, +z.dataset.i + 1);
   });
   return el;
-}
-// Les rubriques entrent en scène à mesure qu'on descend, et le menu allume celle où l'on est.
-function bandWatch(again) {
-  const el = $('#bandpage');
-  if (BP.io) BP.io.disconnect();
-  if (BP.spy) BP.spy.disconnect();
-  BP.io = BP.spy = null;
-  if (!el || !('IntersectionObserver' in window)) return;
-  if (el.classList.contains('anim')) {
-    BP.io = new IntersectionObserver(list => list.forEach(x => { if (x.isIntersecting) { x.target.classList.add('in'); BP.io.unobserve(x.target); } }), { root: el, rootMargin: '0px 0px -8% 0px' });
-    el.querySelectorAll('.bp-intro, .bp-sec, .bp-break, .bp-end').forEach(x => { if (again && x.getBoundingClientRect().top < innerHeight) x.classList.add('in', 'now'); else BP.io.observe(x); });
-  }
-  const nav = el.querySelector('.bp-nav div');
-  if (!nav) return;
-  BP.spy = new IntersectionObserver(list => list.forEach(x => {
-    if (!x.isIntersecting) return;
-    nav.querySelectorAll('button').forEach(bt => bt.classList.toggle('on', bt.dataset.go === x.target.id));
-    const on = nav.querySelector('button.on');
-    if (on) nav.scrollTo({ left: on.offsetLeft - nav.clientWidth / 2 + on.offsetWidth / 2, behavior: 'smooth' });
-  }), { root: el, rootMargin: '-45% 0px -50% 0px' });
-  el.querySelectorAll('.bp-sec[id]').forEach(x => BP.spy.observe(x));
 }
 // Tout afficher. o : { preview, photos, tracks, hero, sign, link, live, onPick, again }.
 function showBandPage(b, o = {}) {
@@ -1239,30 +1254,33 @@ function showBandPage(b, o = {}) {
   BP.b = b;
   BP.o = { ...o, photos: (o.photos || []).filter(isCover), tracks: o.tracks || [] };
   const tpl = tplOf(b && b.page);
-  loadTplFont(tpl);
-  el.dataset.tpl = tpl[0];
-  const accent = b && b.page && /^#[0-9a-f]{6}$/i.test(b.page.accent || '') ? b.page.accent : '';
+  const accent = MODELES && b && b.page && /^#[0-9a-f]{6}$/i.test(b.page.accent || '') ? b.page.accent : '';
   if (accent) el.style.setProperty('--accent', accent); else el.style.removeProperty('--accent');
-  bandTheme(tpl);
   el.classList.toggle('anim', !matchMedia('(prefers-reduced-motion: reduce)').matches);
   el.classList.toggle('again', !!o.again);
   el.classList.toggle('framed', !!o.preview);
-  el.classList.toggle('trying', !!o.onPick);
+  el.classList.toggle('trying', MODELES && !!o.onPick);
   const st = bandState();
   const canLive = b && datesOf(b.page).some(x => x.d >= today());
+  const top = bandTopHtml(b && o.link);
   el.innerHTML = (o.preview ? `<div class="bp-bar"><span>Aperçu</span><div>${canLive ? `<button type="button" class="txt-btn ${o.live ? 'on' : ''}" data-bp-live>${o.live ? 'jour normal' : 'soir de concert'}</button>` : ''}<button type="button" class="txt-btn" data-bp-close>fermer</button></div></div>` : '') +
-    '<div class="bp-fx" aria-hidden="true"><i></i><i></i></div>' +
-    (b ? `<article class="bp-page">${bandHeroHtml(b, st)}<div class="bp-rest">${bandRestHtml(b, st)}</div></article>`
-      : `<article class="bp-page bp-none"><h1>${o.offline ? 'Page indisponible' : "Cette page n'existe pas"}</h1><p class="bp-memo">${o.offline ? 'Pas de réseau pour le moment. Réessaie dans un instant.' : "Le groupe l'a peut-être fermée, ou l'adresse est incomplète."}</p>
-      <footer class="bp-foot"><a href="${esc(location.pathname)}">Rec<i>.</i></a><span>le carnet d'idées des groupes</span></footer></article>`) +
-    (o.onPick && b ? bandTryHtml(b) : '');
+    (b ? `<div class="bp-page">${top}<main>${bandHeroHtml(b, st)}<div class="bp-rest">${bandRestHtml(b, st)}</div></main></div>`
+      : `<div class="bp-page bp-none">${top}<main class="empty"><h1 class="empty-title">${o.offline ? 'Page indisponible' : "Cette page n'existe pas"}</h1><p>${o.offline ? 'Pas de réseau pour le moment. Réessaie dans un instant.' : "Le groupe l'a peut-être fermée, ou l'adresse est incomplète."}</p></main></div>`) +
+    (MODELES && o.onPick && b ? bandTryHtml(b) : '');
+  // La feuille du modèle arrive à la demande : tant qu'elle n'est pas là, la page reste masquée plutôt qu'à moitié habillée.
+  const ready = () => { if (BP.b !== b) return; el.dataset.tpl = tpl[0]; bandTheme(tpl); el.classList.remove('dressing'); };
+  if (tpl[0] === 'studio' || document.getElementById('tplcss-' + tpl[0]) && document.getElementById('tplcss-' + tpl[0]).sheet) ready();
+  else { el.classList.add('dressing'); Promise.race([tplReady(tpl), new Promise(r => setTimeout(r, 1800))]).then(ready); }
   el.hidden = false;
+  const f = document.activeElement;
+  if (f && f !== document.body && !el.contains(f)) { BP.opener = f; f.blur(); } // sinon Espace relancerait le bouton resté derrière
+  for (const x of document.body.children) if (x !== el && x.tagName !== 'SCRIPT' && !x.inert) { x.inert = true; BP.inert.push(x); }
   if (!o.again) el.scrollTop = 0;
   document.body.classList.add('paging');
-  bandWatch(!!o.again);
   bandPaintPlay();
+  bandTick();
 }
-// Des données arrivent après coup (morceaux, photos) : on repeint sous l'ouverture, sans la toucher.
+// Des données arrivent après coup (morceaux, photos) : on repeint les modules, sans toucher à la fiche.
 function bandRefresh(patch) {
   const el = $('#bandpage');
   if (!el || el.hidden || !BP.b) return;
@@ -1270,26 +1288,10 @@ function bandRefresh(patch) {
   BP.o.photos = (BP.o.photos || []).filter(isCover);
   BP.o.tracks = BP.o.tracks || [];
   const st = bandState();
-  const rest = el.querySelector('.bp-rest'), cta = el.querySelector('.bp-cta'), hero = el.querySelector('.bp-hero');
+  const rest = el.querySelector('.bp-rest');
   if (rest) rest.innerHTML = bandRestHtml(BP.b, st);
-  if (cta) cta.innerHTML = bandCtaHtml(st);
-  const full = hero && hero.querySelector('img.full');
-  if (hero && !st.hero && !st.tiny) { // le groupe n'a plus de photo : l'ouverture redevient simple
-    const old = hero.querySelector('.bp-hero-img');
-    if (old) old.remove();
-    hero.classList.remove('has-photo');
-  } else if (full && st.hero && full.getAttribute('src') !== st.hero) full.src = st.hero; // la photo a changé depuis la dernière visite
-  else if (hero && st.hero && !full) { // la vraie photo d'ouverture se pose en fondu sur la miniature
-    let box = hero.querySelector('.bp-hero-img');
-    if (!box) { hero.insertAdjacentHTML('afterbegin', '<button type="button" class="bp-hero-img" data-ph aria-label="Agrandir la photo"><span></span></button>'); box = hero.querySelector('.bp-hero-img'); hero.classList.add('has-photo'); }
-    const img = new Image();
-    img.className = 'full'; img.alt = '';
-    img.onload = () => requestAnimationFrame(() => img.classList.add('on'));
-    box.querySelector('span').append(img);
-    img.src = st.hero;
-  }
-  bandWatch(true);
   bandPaintPlay();
+  bandTick(); // la forme d'onde du morceau en cours garde sa progression
 }
 // Les photos du groupe, gardées en mémoire le temps de la session.
 const PHOTOS = new Map();
@@ -1320,10 +1322,9 @@ async function photoFrom(file) {
 /* ----- Le book : ce que le public voit, et dans quel style ----- */
 async function editBook(g) {
   const page = pageOf(g);
-  let tpl = tplOf(page)[0];
+  let tpl = MODELES ? tplOf(page)[0] : String(page.template || 'studio'); // rangés : le choix d'avant est gardé tel quel
   let accent = /^#[0-9a-f]{6}$/i.test(page.accent || '') ? page.accent : '';
   const photos = await photosOf(g);
-  let tiny = isCover(page.tiny) ? page.tiny : '';
   const tracks = (Array.isArray(page.tracks) ? page.tracks : []).filter(x => x && takeById(x.take)).map(x => ({ take: x.take, title: String(x.title || '') })).slice(0, 5);
   // Les morceaux du groupe qui ont une prise déjà envoyée : la plus longue des versions en cours représente le morceau.
   const songs = S.ideas.filter(i => i.group_id === g.id)
@@ -1340,11 +1341,11 @@ async function editBook(g) {
   const v = await openSheet(`<h2>Le book de « ${esc(g.name)} »</h2>
     <p class="sub">Ce que le public voit sur la page du groupe. Le nom, l'image, la description, le line-up et les liens viennent de la fiche.</p>
 
-    <h3 class="part">1 · Le style</h3>
-    <label class="label">Modèle</label>
+    <h3 class="part">1 · ${MODELES ? 'Le style' : "L'accroche"}</h3>
+    ${MODELES ? `<label class="label">Modèle</label>
     <div class="tpls" id="kTpl">${TEMPLATES.map(t => `<button type="button" class="tpl" data-tpl="${t[0]}" style="--b:${t[2]};--t:${t[3]};--a:${t[4]}"><i></i><b>${t[1]}</b></button>`).join('')}</div>
     <label class="label">Couleur</label>
-    <div class="swatches" id="kAccent"><button type="button" class="swatch auto" data-accent="" aria-label="Couleur du modèle" title="Couleur du modèle"></button>${PALETTE.map(c => `<button type="button" class="swatch" style="--c:${c}" data-accent="${c}" aria-label="Couleur ${c}"></button>`).join('')}</div>
+    <div class="swatches" id="kAccent"><button type="button" class="swatch auto" data-accent="" aria-label="Couleur du modèle" title="Couleur du modèle"></button>${PALETTE.map(c => `<button type="button" class="swatch" style="--c:${c}" data-accent="${c}" aria-label="Couleur ${c}"></button>`).join('')}</div>` : ''}
     <label class="label" for="kTagline">Phrase d'accroche</label>
     <input class="field" id="kTagline" maxlength="120" autocomplete="off" placeholder="Ex : du rock à guitares, fort et mélodique" value="${esc(page.tagline || '')}">
 
@@ -1379,43 +1380,22 @@ async function editBook(g) {
     <label class="label" for="kBooking">E-mail de contact public</label>
     <input class="field" id="kBooking" type="email" maxlength="120" autocomplete="off" placeholder="Facultatif : booking@exemple.fr" value="${esc(page.booking || '')}">
     <p class="hint">Visible par tous sur la page. Laisse vide pour ne pas afficher de contact.</p>
-    <p class="band-acts"><button type="button" class="txt-btn accent" data-preview>voir l'aperçu et essayer les modèles</button></p>
+    <p class="band-acts"><button type="button" class="txt-btn accent" data-preview>${MODELES ? "voir l'aperçu et essayer les modèles" : "voir l'aperçu"}</button></p>
     <div class="row"><button class="btn" data-x>Annuler</button><button class="btn primary" data-ok>Enregistrer</button></div>`,
   (sh, close) => {
     const paintTpl = () => sh.querySelectorAll('.tpl').forEach(b => b.classList.toggle('on', b.dataset.tpl === tpl));
-    sh.querySelector('#kTpl').onclick = e => { const b = e.target.closest('.tpl'); if (b) { tpl = b.dataset.tpl; paintTpl(); } };
-    paintTpl();
     const paintAccent = () => sh.querySelectorAll('#kAccent .swatch').forEach(b => b.classList.toggle('on', b.dataset.accent === accent));
-    sh.querySelector('#kAccent').onclick = e => { const b = e.target.closest('.swatch'); if (b) { accent = b.dataset.accent; paintAccent(); } };
-    paintAccent();
+    if (MODELES) {
+      sh.querySelector('#kTpl').onclick = e => { const b = e.target.closest('.tpl'); if (b) { tpl = b.dataset.tpl; paintTpl(); } };
+      sh.querySelector('#kAccent').onclick = e => { const b = e.target.closest('.swatch'); if (b) { accent = b.dataset.accent; paintAccent(); } };
+      paintTpl(); paintAccent();
+    }
     const grid = sh.querySelector('#kPhotos');
     const paintPhotos = () => {
       grid.innerHTML = photos.map(ph => `<figure><img src="${isCover(ph.data) ? ph.data : ''}" alt=""><button type="button" class="txt-btn danger" data-ph-del="${ph.id}">retirer</button></figure>`).join('');
       sh.querySelector('[data-ph-add]').hidden = photos.length >= 8;
     };
     paintPhotos();
-    // Une miniature floue de la première photo (moins d'un Ko) : l'ouverture de la page s'affiche avant que la vraie photo arrive.
-    let tinyOf = '';
-    const makeTiny = () => {
-      const src = photos[0] ? photos[0].data : '';
-      if (src === tinyOf) return;
-      tinyOf = src;
-      if (!src) { tiny = ''; saveTiny(); return; }
-      const img = new Image();
-      img.onload = () => { if (tinyOf !== src) return; const c = document.createElement('canvas'); c.width = 32; c.height = Math.max(1, Math.round(32 * img.naturalHeight / img.naturalWidth)); c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); tiny = c.toDataURL('image/jpeg', 0.5); saveTiny(); };
-      img.src = src;
-    };
-    // Les photos sont enregistrées dès qu'on les ajoute ou les retire : leur miniature aussi, sinon une photo retirée resterait en flou sur la page.
-    const saveTiny = async () => {
-      const want = tiny && photos.length ? tiny : '', cur = pageOf(g);
-      if ((cur.tiny || '') === want) return;
-      const next = { ...cur };
-      if (want) next.tiny = want; else delete next.tiny;
-      const profile = { ...profOf(g) };
-      if (Object.keys(next).length) profile.page = next; else delete profile.page;
-      try { await S.store.saveGroupProfile(g.id, g.memo, g.cover, profile); g.profile = profile; } catch (e) { console.error(e); }
-    };
-    makeTiny();
     const trkBox = sh.querySelector('#kTracks'), trkSel = sh.querySelector('#kSong');
     const keepTitles = () => trkBox.querySelectorAll('.trk-row').forEach(r => { tracks[+r.dataset.n].title = r.querySelector('[data-trk-title]').value.trim(); });
     const paintTracks = () => {
@@ -1454,7 +1434,7 @@ async function editBook(g) {
         try {
           const row = await S.store.addPhoto(g.id, await photoFrom(f), photos.reduce((m, x) => Math.max(m, x.position || 0), 0) + 1);
           photos.push(row);
-          paintPhotos(); makeTiny();
+          paintPhotos();
         } catch (e) { fail(e, isNetErr(e) ? 'Il faut du réseau pour ajouter une photo' : 'Photo refusée'); break; }
       }
     };
@@ -1462,7 +1442,7 @@ async function editBook(g) {
       const b = e.target.closest('[data-ph-del]');
       if (!b) return;
       b.disabled = true;
-      try { await S.store.deletePhoto(b.dataset.phDel); photos.splice(photos.findIndex(x => x.id === b.dataset.phDel), 1); paintPhotos(); makeTiny(); }
+      try { await S.store.deletePhoto(b.dataset.phDel); photos.splice(photos.findIndex(x => x.id === b.dataset.phDel), 1); paintPhotos(); }
       catch (err) { b.disabled = false; fail(err, 'Retrait impossible'); }
     };
     const dates = sh.querySelector('#kDates');
@@ -1479,12 +1459,11 @@ async function editBook(g) {
       if (list.length) out.dates = list.slice(0, 40).map(x => { const d = { d: x.d, where: x.where }; if (/^\d{2}:\d{2}$/.test(x.h || '')) d.h = x.h; if (x.url) d.url = x.url; return d; });
       keepTitles();
       if (tracks.length) out.tracks = tracks.map(x => ({ take: x.take, title: x.title }));
-      if (tiny && photos.length) out.tiny = tiny;
       return out;
     };
-    // L'aperçu sert aussi d'essayage : le modèle et la couleur choisis dedans reviennent ici.
+    // L'aperçu sert aussi d'essayage quand les modèles sont là : le modèle et la couleur choisis dedans reviennent ici.
     sh.querySelector('[data-preview]').onclick = () => { const now = read(); showBandPage({ ...publicView(g), page: now }, { preview: true, photos: photos.map(x => x.data), tracks: tracksView(g, now.tracks), sign: signMine,
-      link: g.public_slug ? pageLink(g.public_slug) : '', onPick: (t, a) => { tpl = t; accent = a; paintTpl(); paintAccent(); } }); };
+      link: g.public_slug ? pageLink(g.public_slug) : '', ...(MODELES ? { onPick: (t, a) => { tpl = t; accent = a; paintTpl(); paintAccent(); } } : {}) }); };
     sh.querySelector('[data-x]').onclick = () => close(null);
     sh.querySelector('[data-ok]').onclick = async e => {
       const btn = e.currentTarget, now = read();
@@ -1501,10 +1480,11 @@ async function editBook(g) {
   toast(g.public_slug ? 'Book enregistré, la page est à jour' : 'Book enregistré');
 }
 // Un visiteur arrive par l'adresse du groupe : il ne voit que la page, pas l'appli.
-// La première image doit arriver entière : le texte, la police du modèle et l'ouverture ensemble, puis le reste sous l'ouverture.
+// Le premier écran arrive entier : la fiche, les morceaux et le prochain concert ensemble. Les photos suivent, plus bas.
 async function openPublicPage(raw) {
   const slug = slugify(raw);
   const el = bandShell();
+  if (!el.innerHTML) el.innerHTML = `<div class="bp-page">${bandTopHtml(false)}</div>`;
   el.hidden = false;
   document.body.classList.add('paging');
   const sleep = (ms, v = null) => new Promise(r => setTimeout(() => r(v), ms));
@@ -1528,17 +1508,16 @@ async function openPublicPage(raw) {
   } catch (e) { console.error(e); down = true; if (kept) return; }
   if (!b || !b.name) { if (!down) { try { localStorage.removeItem(key); } catch {} } showBandPage(null, { offline: down }); return; }
   document.title = b.name;
-  const hasTiny = isCover(b.page && b.page.tiny);
   const [tracks, hero] = await Promise.all([
     Promise.race([tracksP, sleep(700)]),
-    Promise.race([heroP, sleep(hasTiny ? 80 : 1300)]), // sans miniature, on laisse un peu de temps à la vraie photo
-    Promise.race([fontReady(tplOf(b.page)), sleep(900)]),
+    Promise.race([heroP, sleep(80)]), // la photo n'est plus au premier écran : elle rejoint les photos quand elle arrive
+    Promise.race([tplReady(tplOf(b.page)), sleep(1500)]),
   ]);
   const fresh = !kept || JSON.stringify(kept.b) !== JSON.stringify(b);
-  const known = h => (h != null ? { hero: h, noPhoto: h === '' } : {});
+  const known = h => (h != null ? { hero: h } : {});
   if (fresh) showBandPage(b, { tracks: tracks || (kept && BP.o.tracks) || [], hero: (kept && kept.hero) || '', ...known(hero), link, sign, again: !!kept });
   else if (tracks || hero != null) bandRefresh({ ...(tracks ? { tracks } : {}), ...known(hero) });
-  // La suite arrive sous l'ouverture, sans la toucher.
+  // La suite arrive dans les modules, sans toucher à la fiche.
   const all = tracks || await tracksP;
   if (!tracks) bandRefresh({ tracks: all });
   const pic = hero != null ? hero : await heroP;
@@ -1834,7 +1813,7 @@ function loopAction(action, id) {
   updateLoopUI();
 }
 function updateLoopUI() {
-  document.querySelectorAll('.take').forEach(row => {
+  document.querySelectorAll('.take[data-id]').forEach(row => {
     const mine = LOOP.on && LOOP.id === row.dataset.id;
     const [bLoop, bA, bB] = row.querySelectorAll('.loopbar button');
     if (!bLoop) return;
@@ -1893,7 +1872,7 @@ async function play(id, queue = []) {
   updatePlayUI();
 }
 function updatePlayUI() {
-  document.querySelectorAll('.take').forEach(row => {
+  document.querySelectorAll('.take[data-id]').forEach(row => { // les lignes de la page d'un groupe (sans data-id) se peignent seules
     const current = row.dataset.id === S.playing;
     const on = current && !audio.paused;
     row.classList.toggle('is-playing', on);
@@ -1968,7 +1947,7 @@ function openSheet(html, mount) {
     mount && mount(sh, close);
   });
 }
-document.addEventListener('keydown', e => { if (e.key === 'Escape' && sheetClose) sheetClose(undefined); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && sheetClose && !document.body.classList.contains('paging')) sheetClose(undefined); }); // la page d'un groupe gère sa propre touche Échap
 
 function promptText(title, value = '', { multiline = false, placeholder = '' } = {}) {
   const field = multiline
@@ -4589,7 +4568,7 @@ function wireUi() {
 
   // Barre d'espace = enregistrer / arrêter (sur PC)
   document.addEventListener('keydown', e => {
-    if (e.code !== 'Space' || sheetClose || STAGE.on || RIDER_ON || /INPUT|TEXTAREA/.test(document.activeElement?.tagName)) return;
+    if (e.code !== 'Space' || sheetClose || STAGE.on || RIDER_ON || document.body.classList.contains('paging') || /INPUT|TEXTAREA/.test(document.activeElement?.tagName)) return;
     e.preventDefault();
     if (REC.recorder) stopRecording(false); else startRecording(null);
   });
