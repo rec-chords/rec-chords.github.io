@@ -1149,3 +1149,97 @@ body.paging { overflow: hidden; }
 .dt-row [data-dt="url"] { grid-column: 1 / 3; }
 .dt-row [data-dt-del] { grid-row: 1; grid-column: 3; }
 @media (max-width: 520px) { .ph-grid { grid-template-columns: repeat(3, 1fr); } .dt-row { grid-template-columns: 1fr auto; } .dt-row [data-dt="d"] { grid-column: 1; } .dt-row [data-dt="where"], .dt-row [data-dt="url"] { grid-column: 1 / -1; } .dt-row [data-dt-del] { grid-column: 2; } }
+
+/* ---------- Les matières des modèles ---------- */
+.bp { --grain-w: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  .16 0 0 0 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); --grain-k: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  .20 0 0 0 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); --smoke: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='900' height='900'%3E%3Cfilter id='n' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.008' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  .30 0 0 0 -.10'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); --brush: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='600' height='300'%3E%3Cfilter id='n' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.004 .9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  .15 0 0 0 -.03'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); --blots: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='500' height='500'%3E%3Cfilter id='n' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.035' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  .5 0 0 0 -.2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); --wear: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='260' height='260'%3E%3Cfilter id='n' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.55' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  7 0 0 0 -1.9'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
+
+/* Metal : acier sombre et brossé, lueur rouge, chrome */
+.bp[data-tpl="metal"] { background-image:
+    radial-gradient(ellipse 75% 46% at 50% -6%, color-mix(in srgb, var(--accent) 46%, transparent), transparent 72%),
+    radial-gradient(ellipse at 50% 46%, transparent 34%, rgba(0, 0, 0, .9) 100%),
+    var(--grain-w), var(--brush), var(--smoke);
+  background-size: auto, auto, 220px 220px, 600px 300px, 900px 900px; }
+.bp[data-tpl="metal"] .bp-page h1 { padding: 0 .08em .08em; text-shadow: none; color: transparent; -webkit-background-clip: text; background-clip: text;
+  background-image: linear-gradient(180deg, #fff 0%, #cfcfcf 30%, #6a6a6a 50%, #ececec 58%, #9a9a9a 78%, #4a4a4a 100%);
+  filter: drop-shadow(0 0 22px color-mix(in srgb, var(--accent) 85%, transparent)) drop-shadow(0 2px 0 #000); }
+.bp[data-tpl="metal"] .bp-page h2 { display: flex; align-items: center; justify-content: center; gap: 16px; }
+.bp[data-tpl="metal"] .bp-page h2::before, .bp[data-tpl="metal"] .bp-page h2::after { content: ""; flex: 1; height: 1px; background: linear-gradient(90deg, transparent, var(--accent)); }
+.bp[data-tpl="metal"] .bp-page h2::after { transform: scaleX(-1); }
+.bp[data-tpl="metal"] .bp-grille { padding: 0; border: 0; background: none; gap: 10px; }
+.bp[data-tpl="metal"] .bp-link, .bp[data-tpl="metal"] .bp-dates li, .bp[data-tpl="metal"] .bp-lineup li { border: 1px solid #343434; box-shadow: inset 0 1px 0 rgba(255, 255, 255, .10), inset 0 -1px 0 #000, 0 8px 18px -8px #000;
+  background-color: #111; background-image: radial-gradient(circle at 9px 9px, #6d6d6d 0 1.6px, #000 1.7px 2.6px, transparent 2.8px), radial-gradient(circle at calc(100% - 9px) 9px, #6d6d6d 0 1.6px, #000 1.7px 2.6px, transparent 2.8px),
+    radial-gradient(circle at 9px calc(100% - 9px), #6d6d6d 0 1.6px, #000 1.7px 2.6px, transparent 2.8px), radial-gradient(circle at calc(100% - 9px) calc(100% - 9px), #6d6d6d 0 1.6px, #000 1.7px 2.6px, transparent 2.8px),
+    linear-gradient(180deg, rgba(255, 255, 255, .07), transparent 45%), var(--brush); background-size: auto, auto, auto, auto, auto, 600px 300px; }
+.bp[data-tpl="metal"] .bp-link { padding: 18px 34px 14px 22px; } .bp[data-tpl="metal"] .bp-link:hover { border-color: var(--accent); }
+.bp[data-tpl="metal"] .bp-dates ol, .bp[data-tpl="metal"] .bp-lineup ol { border-top: 0; } .bp[data-tpl="metal"] .bp-dates li, .bp[data-tpl="metal"] .bp-lineup li { margin-bottom: 8px; padding: 14px 22px; }
+.bp[data-tpl="metal"] .bp-cover { box-shadow: 0 0 0 1px #444, 0 0 0 5px #0a0a0a, 0 0 0 6px #333, 0 0 46px -4px color-mix(in srgb, var(--accent) 80%, transparent); }
+.bp[data-tpl="metal"] .bp-gal button, .bp[data-tpl="metal"] .bp-frame { box-shadow: 0 0 0 1px #3a3a3a; }
+
+/* Jazz : velours bleu nuit, capitonnage, dorure */
+.bp[data-tpl="jazz"] { background-image:
+    radial-gradient(ellipse 62% 50% at 84% -8%, color-mix(in srgb, var(--accent) 34%, transparent), transparent 70%),
+    radial-gradient(ellipse at 0 100%, rgba(60, 90, 160, .28), transparent 55%),
+    radial-gradient(ellipse at 50% 45%, transparent 42%, rgba(0, 0, 0, .62) 100%),
+    repeating-linear-gradient(45deg, color-mix(in srgb, var(--accent) 7%, transparent) 0 1px, transparent 1px 17px),
+    repeating-linear-gradient(-45deg, color-mix(in srgb, var(--accent) 7%, transparent) 0 1px, transparent 1px 17px),
+    var(--grain-w);
+  background-size: auto, auto, auto, auto, auto, 220px 220px; }
+.bp[data-tpl="jazz"] .bp-page h1 { padding: 0 .12em .1em 0; color: transparent; -webkit-background-clip: text; background-clip: text;
+  background-image: linear-gradient(100deg, color-mix(in srgb, var(--accent) 72%, #000) 0%, color-mix(in srgb, var(--accent) 42%, #fff) 28%, var(--accent) 48%, color-mix(in srgb, var(--accent) 28%, #fff) 66%, color-mix(in srgb, var(--accent) 78%, #000) 100%);
+  filter: drop-shadow(0 2px 10px rgba(0, 0, 0, .6)); }
+.bp[data-tpl="jazz"] .bp-head { padding-bottom: 34px; border-bottom: 1px solid color-mix(in srgb, var(--accent) 50%, transparent); box-shadow: 0 4px 0 -3px color-mix(in srgb, var(--accent) 28%, transparent); }
+.bp[data-tpl="jazz"] .bp-grille { padding: 0; border: 0; background: none; gap: 12px; }
+.bp[data-tpl="jazz"] .bp-link { padding: 18px 36px 16px 20px; border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent); background: linear-gradient(155deg, rgba(255, 255, 255, .07), rgba(255, 255, 255, 0) 42%), #0f1626;
+  box-shadow: inset 0 0 0 4px #0f1626, inset 0 0 0 5px color-mix(in srgb, var(--accent) 26%, transparent), 0 14px 30px -18px #000; }
+.bp[data-tpl="jazz"] .bp-link:hover { background-color: #152038; }
+.bp[data-tpl="jazz"] .bp-gal button, .bp[data-tpl="jazz"] .bp-frame { box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 50%, transparent), 0 0 0 5px var(--bg), 0 0 0 6px color-mix(in srgb, var(--accent) 22%, transparent); }
+.bp[data-tpl="jazz"] .bp-gal { gap: 16px; } .bp[data-tpl="jazz"] .bp-dates ol, .bp[data-tpl="jazz"] .bp-lineup ol { border-top-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+.bp[data-tpl="jazz"] .bp-dates li, .bp[data-tpl="jazz"] .bp-lineup li { border-bottom-color: color-mix(in srgb, var(--accent) 22%, transparent); }
+
+/* Rock : scène enfumée, grain d'affiche, encre usée */
+.bp[data-tpl="rock"] { background-image:
+    radial-gradient(ellipse 90% 40% at 50% -4%, color-mix(in srgb, var(--accent) 34%, transparent), transparent 74%),
+    radial-gradient(ellipse at 50% 50%, transparent 40%, rgba(0, 0, 0, .8) 100%),
+    var(--grain-w), var(--smoke);
+  background-size: auto, auto, 180px 180px, 900px 900px; }
+.bp[data-tpl="rock"] .bp-page h1 { -webkit-mask-image: var(--wear); mask-image: var(--wear); -webkit-mask-size: 260px 260px; mask-size: 260px 260px; }
+.bp[data-tpl="rock"] .bp-link, .bp[data-tpl="rock"] .bp-grille { background-image: var(--grain-w); background-size: 180px 180px; }
+.bp[data-tpl="rock"] .bp-cover { box-shadow: 0 0 0 1px #000, 10px 10px 0 var(--accent); }
+
+/* Punk : papier photocopié, trame, encre qui bave */
+.bp[data-tpl="punk"] { background-image:
+    radial-gradient(ellipse at 50% 40%, transparent 50%, rgba(60, 40, 10, .22) 100%),
+    var(--grain-k),
+    radial-gradient(rgba(0, 0, 0, .10) 1px, transparent 1.5px),
+    repeating-linear-gradient(0deg, rgba(0, 0, 0, .04) 0 1px, transparent 1px 3px);
+  background-size: auto, 200px 200px, 6px 6px, auto; }
+.bp[data-tpl="punk"] .bp-page h1, .bp[data-tpl="punk"] .bp-page h2 { -webkit-mask-image: var(--wear); mask-image: var(--wear); -webkit-mask-size: 260px 260px; mask-size: 260px 260px; }
+
+/* Classique : papier vergé ivoire */
+.bp[data-tpl="classique"] { background-image:
+    radial-gradient(ellipse at 50% 42%, transparent 48%, rgba(120, 88, 36, .22) 100%),
+    repeating-linear-gradient(0deg, rgba(120, 88, 36, .055) 0 1px, transparent 1px 4px),
+    repeating-linear-gradient(90deg, rgba(120, 88, 36, .04) 0 1px, transparent 1px 36px),
+    var(--grain-k);
+  background-size: auto, auto, auto, 220px 220px; }
+.bp[data-tpl="classique"] .bp-head { padding-bottom: 34px; border-bottom: 3px double var(--line); }
+
+/* Rap : mur de béton, bande de chantier */
+.bp[data-tpl="rap"] { background-image:
+    radial-gradient(ellipse at 50% 30%, transparent 30%, rgba(0, 0, 0, .78) 100%),
+    var(--grain-w), var(--blots), var(--smoke);
+  background-color: #151515; background-size: auto, 200px 200px, 500px 500px, 900px 900px; }
+.bp[data-tpl="rap"] .bp-page::before { content: ""; display: block; height: 16px; margin: -20px 0 36px; background: repeating-linear-gradient(-45deg, var(--accent) 0 16px, #000 16px 32px); box-shadow: 0 6px 16px -4px #000; }
+
+/* Pop : pois et bulles */
+.bp[data-tpl="pop"] { background-image:
+    radial-gradient(circle at 10% 6%, rgba(255, 214, 102, .55), transparent 28%), radial-gradient(circle at 92% 16%, rgba(120, 200, 255, .55), transparent 32%), radial-gradient(circle at 70% 96%, rgba(255, 140, 200, .45), transparent 38%),
+    radial-gradient(#fff 2.4px, transparent 3px);
+  background-size: auto, auto, auto, 26px 26px; }
+
+/* K-pop : reflet holographique, paillettes */
+.bp[data-tpl="kpop"] { background-image:
+    radial-gradient(#fff 1.3px, transparent 2px), radial-gradient(#fff 1px, transparent 1.6px),
+    linear-gradient(115deg, transparent 18%, rgba(255, 255, 255, .5) 30%, transparent 43%, transparent 60%, rgba(255, 255, 255, .34) 70%, transparent 81%),
+    linear-gradient(160deg, #d9ccff 0%, #c4e8ff 48%, #ffd6f1 100%);
+  background-size: 94px 94px, 137px 137px, auto, auto; background-position: 0 0, 45px 31px, 0 0, 0 0; }
