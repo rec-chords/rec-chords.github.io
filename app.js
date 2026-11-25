@@ -804,10 +804,7 @@ const youtubeId = u => (String(u || '').match(/(?:youtu\.be\/|[?&]v=|\/embed\/|\
 const datesOf = page => (Array.isArray(page && page.dates) ? page.dates : []).filter(x => x && /^\d{4}-\d{2}-\d{2}$/.test(x.d || '') && x.where).sort((x, y) => x.d.localeCompare(y.d));
 const today = () => { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`; };
 const paras = text => esc(text).split(/\n{2,}/).map(x => `<p>${x.replace(/\n/g, '<br>')}</p>`).join('');
-function galleryHtml(photos) {
-  const list = (photos || []).filter(isCover);
-  return list.length ? `<div class="bp-gal n${Math.min(list.length, 8)}">${list.map((src, i) => `<button type="button" data-ph="${i}" aria-label="Agrandir la photo"><img src="${src}" alt="" loading="lazy"></button>`).join('')}</div>` : '';
-}
+// La page est composée comme un livret : une ouverture, puis des rubriques numérotées. Tous les blocs partagent le même cadre (.bp-panel).
 function bandPageHtml(b, photos) {
   const page = b.page && typeof b.page === 'object' ? b.page : {};
   const tag = [b.style, b.city].filter(Boolean).join(' · ');
@@ -821,30 +818,41 @@ function bandPageHtml(b, photos) {
   const now = today();
   const next = dates.filter(x => x.d >= now);
   const past = dates.filter(x => x.d < now).reverse().slice(0, 6);
-  const dateLi = (x, old) => { const d = new Date(x.d + 'T12:00:00'); const u = urlIn(String(x.url || '').trim());
-    return `<li class="${old ? 'old' : ''}"><time datetime="${x.d}"><b>${String(d.getDate()).padStart(2, '0')}</b><span>${esc(d.toLocaleDateString('fr-FR', { month: 'short', year: 'numeric' }))}</span></time><span class="where">${esc(x.where)}</span>${u && !old ? `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer">infos ↗</a>` : ''}</li>`; };
+  const day = x => new Date(x.d + 'T12:00:00');
+  const dateLi = (x, cls) => { const d = day(x); const u = urlIn(String(x.url || '').trim());
+    return `<li class="${cls}"><time datetime="${x.d}"><b>${String(d.getDate()).padStart(2, '0')}</b><span>${esc(d.toLocaleDateString('fr-FR', { month: 'short', year: 'numeric' }))}</span></time><span class="where">${cls === 'next' ? '<em>Prochain concert</em>' : ''}${esc(x.where)}</span>${u && cls !== 'old' ? `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer">infos ↗</a>` : ''}</li>`; };
   const mail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(page.booking || '') ? page.booking : '';
-  const gal = galleryHtml(photos);
+  const pics = (photos || []).filter(isCover);
+  const facts = [b.style && ['Style', b.style], b.city && ['Ville', b.city], lineup.length && ['Formation', lineup.length > 1 ? `${lineup.length} musiciens` : 'Solo'],
+    next[0] && ['Prochain concert', `${day(next[0]).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })} · ${next[0].where}`]].filter(Boolean);
+  const lineupHtml = lineup.length ? `<ol class="bp-panel bp-lineup">${lineup.map((m, n) => `<li><span>${String(n + 1).padStart(2, '0')}</span><div><b>${esc(m.name || '')}</b><em>${esc(m.inst || '')}</em></div></li>`).join('')}</ol>` : '';
   return `<article class="bp-page">
-    <header class="bp-head">
-      ${isCover(b.cover) ? `<img class="bp-cover" src="${b.cover}" alt="">` : ''}
-      <div class="bp-id">
-        ${tag ? `<p class="bp-tag"><i></i>${esc(tag)}</p>` : ''}
-        <h1>${esc(b.name || '')}</h1>
-        ${page.tagline ? `<p class="bp-line">${esc(page.tagline)}</p>` : ''}
+    <header class="bp-hero ${pics[0] ? 'has-photo' : ''}">
+      ${pics[0] ? `<button type="button" class="bp-hero-img" data-ph aria-label="Agrandir la photo"><img src="${pics[0]}" alt=""></button>` : ''}
+      <div class="bp-hero-in">
+        ${isCover(b.cover) ? `<img class="bp-cover" src="${b.cover}" alt="">` : ''}
+        <div class="bp-id">
+          ${tag ? `<p class="bp-tag"><i></i>${esc(tag)}</p>` : ''}
+          <h1>${esc(b.name || '')}</h1>
+          ${page.tagline ? `<p class="bp-line">${esc(page.tagline)}</p>` : ''}
+        </div>
       </div>
     </header>
-    ${memo ? `<p class="bp-memo">${linkify(memo)}</p>` : ''}
-    <section class="bp-photos" ${gal ? '' : 'hidden'}>${gal}</section>
-    ${bio ? `<section class="bp-bio"><h2>Biographie</h2><div class="bp-text">${paras(bio)}</div></section>` : ''}
-    ${yt ? `<section class="bp-video"><h2>En vidéo</h2><div class="bp-frame"><iframe src="https://www.youtube-nocookie.com/embed/${yt}" title="Vidéo du groupe" loading="lazy" allow="accelerometer; encrypted-media; gyroscope; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe></div></section>`
-      : video ? `<section class="bp-video"><h2>En vidéo</h2><div class="bp-grille"><a class="bp-link" href="${esc(video)}" target="_blank" rel="noopener noreferrer"><b>Voir la vidéo</b><small>${esc(linkLabel(video))}</small><span aria-hidden="true">↗</span></a></div></section>` : ''}
-    ${next.length || past.length ? `<section class="bp-dates"><h2>Concerts</h2>
-      ${next.length ? `<ol>${next.map(x => dateLi(x, false)).join('')}</ol>` : '<p class="bp-quiet">Pas de date annoncée pour le moment.</p>'}
-      ${past.length ? `<h3>Déjà joué</h3><ol>${past.map(x => dateLi(x, true)).join('')}</ol>` : ''}</section>` : ''}
-    ${links.length ? `<section class="bp-links"><h2>Écouter et suivre</h2><div class="bp-grille">${links.map(l => `<a class="bp-link" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer"><b>${esc(l.label)}</b><small>${esc(l.sub)}</small><span aria-hidden="true">↗</span></a>`).join('')}</div></section>` : ''}
-    ${lineup.length ? `<section class="bp-lineup"><h2>Line-up</h2><ol>${lineup.map((m, n) => `<li><span>${String(n + 1).padStart(2, '0')}</span><b>${esc(m.name || '')}</b><em>${esc(m.inst || '')}</em></li>`).join('')}</ol></section>` : ''}
-    ${mail ? `<section class="bp-contact"><h2>Contact</h2><a href="mailto:${esc(mail)}">${esc(mail)}</a></section>` : ''}
+    <div class="bp-body">
+      ${memo || facts.length > 1 ? `<div class="bp-intro ${memo && facts.length > 1 ? '' : 'solo'}">
+        ${memo ? `<p class="bp-memo">${linkify(memo)}</p>` : ''}
+        ${facts.length > 1 ? `<dl class="bp-panel bp-facts">${facts.map(([k, v]) => `<div><dt>${k}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>` : ''}</div>` : ''}
+      ${bio || lineupHtml ? `<section class="bp-sec"><h2>${bio ? 'Le groupe' : 'Line-up'}</h2>
+        <div class="bp-two ${bio && lineupHtml ? '' : 'solo'}">${bio ? `<div class="bp-text">${paras(bio)}</div>` : ''}${lineupHtml}</div></section>` : ''}
+      ${pics.length > 1 ? `<section class="bp-sec"><h2>Photos</h2><div class="bp-gal n${Math.min(pics.length - 1, 7)}">${pics.slice(1).map(src => `<button type="button" class="bp-panel" data-ph aria-label="Agrandir la photo"><img src="${src}" alt="" loading="lazy"></button>`).join('')}</div></section>` : ''}
+      ${yt ? `<section class="bp-sec"><h2>En vidéo</h2><div class="bp-panel bp-frame"><iframe src="https://www.youtube-nocookie.com/embed/${yt}" title="Vidéo du groupe" loading="lazy" allow="accelerometer; encrypted-media; gyroscope; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe></div></section>`
+        : video ? `<section class="bp-sec"><h2>En vidéo</h2><div class="bp-grille"><a class="bp-panel bp-link" href="${esc(video)}" target="_blank" rel="noopener noreferrer"><b>Voir la vidéo</b><small>${esc(linkLabel(video))}</small><span aria-hidden="true">↗</span></a></div></section>` : ''}
+      ${next.length || past.length ? `<section class="bp-sec"><h2>Concerts</h2>
+        ${next.length ? `<ol class="bp-panel bp-dates">${next.map((x, i) => dateLi(x, i ? '' : 'next')).join('')}</ol>` : '<p class="bp-quiet">Pas de date annoncée pour le moment.</p>'}
+        ${past.length ? `<h3>Déjà joué</h3><ol class="bp-panel bp-dates">${past.map(x => dateLi(x, 'old')).join('')}</ol>` : ''}</section>` : ''}
+      ${links.length ? `<section class="bp-sec"><h2>Écouter et suivre</h2><div class="bp-grille">${links.map(l => `<a class="bp-panel bp-link" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer"><b>${esc(l.label)}</b><small>${esc(l.sub)}</small><span aria-hidden="true">↗</span></a>`).join('')}</div></section>` : ''}
+      ${mail ? `<section class="bp-sec"><h2>Contact</h2><div class="bp-panel bp-contact"><span>Booking et presse</span><a href="mailto:${esc(mail)}">${esc(mail)}</a></div></section>` : ''}
+    </div>
     <footer class="bp-foot"><a href="${esc(location.pathname)}">Rec<i>.</i></a><span>le carnet d'idées des groupes</span></footer>
   </article>`;
 }
@@ -1017,9 +1025,8 @@ async function openPublicPage(raw) {
   if (!b || !b.name) return;
   // Les photos arrivent après le texte : la page s'affiche tout de suite.
   try {
-    const gal = galleryHtml(await cloud.publicPhotos(slug));
-    const box = document.querySelector('#bandpage .bp-photos');
-    if (gal && box) { box.innerHTML = gal; box.hidden = false; }
+    const photos = await cloud.publicPhotos(slug);
+    if (Array.isArray(photos) && photos.length) { const el = $('#bandpage'); const top = el.scrollTop; showBandPage(b, false, photos); el.scrollTop = top; }
   } catch (e) { console.error(e); }
 }
 // Depuis la fiche du groupe : l'adresse à partager, son QR code, et l'aperçu.
