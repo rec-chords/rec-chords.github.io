@@ -1145,6 +1145,93 @@ body.paging { overflow: hidden; }
 .bp[data-tpl="kpop"] .bp-tag i { width: auto; height: auto; background: none; box-shadow: none; } .bp[data-tpl="kpop"] .bp-tag i::before { content: "✦"; font-style: normal; }
 .bp[data-tpl="kpop"] .bp-panel { backdrop-filter: blur(8px); }
 
+/* ---------- Le book en mouvement : ouverture plein écran, bandeau, menu, ambiance ---------- */
+.bp { overflow-x: hidden; }
+.bp-page { position: relative; z-index: 1; }
+.bp-hero.has-photo { min-height: min(90vh, 860px); }
+.bp.framed .bp-hero.has-photo { min-height: min(78vh, 760px); }
+.bp-hero-img img { transform-origin: 50% 40%; }
+/* le bandeau défilant, dans le cadre du modèle */
+.bp-tick { overflow: hidden; background: var(--surf); border-top: var(--edge); border-bottom: var(--edge); color: var(--on); }
+.bp-tick div { display: flex; width: max-content; padding: 13px 0 12px; animation: bp-tick 46s linear infinite; }
+.bp-tick span { padding: 0 22px; font: var(--lw) 17px/1 var(--lf); letter-spacing: var(--lls); text-transform: uppercase; white-space: nowrap; }
+.bp-tick i { font-style: normal; font-size: 13px; line-height: 17px; color: var(--ona); }
+@keyframes bp-tick { to { transform: translateX(-50%); } }
+/* le menu du groupe : il reste en haut une fois l'ouverture passée */
+.bp-nav { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 22px; padding: 0 24px; height: 54px; background: color-mix(in srgb, var(--bg) 86%, transparent); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-bottom: 1px solid var(--line); }
+.bp.framed .bp-nav { top: 43px; }
+.bp-nav b { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--h1fs) var(--h1w) 21px/1 var(--d); letter-spacing: var(--h1ls); text-transform: var(--tt); color: var(--text); }
+.bp-nav div { display: flex; gap: 4px; margin-left: auto; overflow-x: auto; scrollbar-width: none; }
+.bp-nav div::-webkit-scrollbar { display: none; }
+.bp-nav button { flex: none; padding: 8px 11px; font: 500 var(--msz) var(--m); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); cursor: pointer; border-radius: var(--rad); transition: color .12s, background .12s; }
+.bp-nav button:hover { color: var(--text); background: color-mix(in srgb, var(--text) 9%, transparent); }
+/* la grande photo en pleine largeur */
+.bp-break { position: relative; display: block; width: 100vw; margin: 76px 0 0 calc(50% - 50vw); padding: 0; height: min(64vh, 560px); overflow: hidden; cursor: zoom-in; border-top: var(--edge); border-bottom: var(--edge); }
+.bp-break img { display: block; width: 100%; height: 100%; object-fit: cover; filter: var(--imgf); }
+.bp-break::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, transparent 40%, color-mix(in srgb, var(--bg) 82%, transparent)); }
+.bp-break span { position: absolute; z-index: 1; left: 0; right: 0; bottom: 34px; padding: 0 24px; text-align: center; font: var(--h1fs) var(--h1w) clamp(26px, 5vw, 54px)/1.05 var(--d); letter-spacing: var(--h1ls); text-transform: var(--tt); color: var(--text); text-shadow: 0 2px 22px var(--bg); }
+/* la visionneuse */
+.bp-zoom button { position: absolute; top: 50%; width: 54px; height: 54px; margin-top: -27px; border-radius: 50%; background: rgba(255, 255, 255, .12); color: #fff; font: 30px/1 system-ui, sans-serif; cursor: pointer; }
+.bp-zoom button[data-z="-1"] { left: 14px; } .bp-zoom button[data-z="1"] { right: 14px; } .bp-zoom button:hover { background: rgba(255, 255, 255, .26); }
+.bp-zoom span { position: absolute; bottom: 16px; left: 0; right: 0; text-align: center; font: 13px ui-monospace, monospace; color: #bbb; }
+/* l'entrée en scène */
+.bp.anim:not(.again) .bp-hero-img img { animation: bp-zoomout 22s cubic-bezier(.2, .6, .2, 1) both; }
+.bp.anim:not(.again) .bp-cover { animation: bp-rise .9s .15s cubic-bezier(.2, .7, .2, 1) both; }
+.bp.anim:not(.again) .bp-tag { animation: bp-rise .8s .3s cubic-bezier(.2, .7, .2, 1) both; }
+.bp.anim:not(.again) .bp-hero h1 { animation: bp-rise 1.1s .42s cubic-bezier(.2, .7, .2, 1) both; }
+.bp.anim:not(.again) .bp-line { animation: bp-rise .9s .7s cubic-bezier(.2, .7, .2, 1) both; }
+.bp.anim .bp-intro, .bp.anim .bp-sec, .bp.anim .bp-break { opacity: 0; translate: 0 34px; transition: opacity .8s cubic-bezier(.2, .7, .2, 1), translate .8s cubic-bezier(.2, .7, .2, 1); }
+.bp.anim .bp-intro.in, .bp.anim .bp-sec.in, .bp.anim .bp-break.in { opacity: 1; translate: 0 0; }
+.bp.anim .now { transition: none; }
+.bp.anim .bp-break img { scale: 1.12; transition: scale 2.4s cubic-bezier(.2, .7, .2, 1); } .bp.anim .bp-break.in img { scale: 1; }
+@keyframes bp-zoomout { from { transform: scale(1.16); } to { transform: scale(1); } }
+@keyframes bp-rise { from { opacity: 0; translate: 0 30px; } to { opacity: 1; translate: 0 0; } }
+
+/* L'ambiance : une couche fixe derrière le contenu, une par modèle */
+.bp-fx { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+.bp-fx i { position: absolute; display: block; }
+.bp:not(.anim) .bp-fx { display: none; }
+@keyframes bp-sway { from { transform: translateX(-16vw) rotate(-7deg); } to { transform: translateX(16vw) rotate(7deg); } }
+@keyframes bp-pulse { from { opacity: .45; } to { opacity: 1; } }
+@keyframes bp-up { from { transform: translateY(0); } to { transform: translateY(-130vh); } }
+@keyframes bp-sweep { from { transform: translateX(-70vw) skewX(-18deg); } to { transform: translateX(170vw) skewX(-18deg); } }
+@keyframes bp-twinkle { 0%, 100% { opacity: .15; } 50% { opacity: 1; } }
+@keyframes bp-jit { 0%, 100% { transform: translate(0, 0); opacity: .5; } 25% { transform: translate(-3px, 2px); opacity: .8; } 50% { transform: translate(2px, -3px); opacity: .35; } 75% { transform: translate(3px, 3px); opacity: .7; } }
+/* Studio : un voyant de console qui respire */
+.bp[data-tpl="studio"] .bp-fx i:first-child { right: -20vmax; top: -26vmax; width: 70vmax; height: 70vmax; border-radius: 50%; background: radial-gradient(circle, color-mix(in srgb, var(--accent) 22%, transparent), transparent 62%); animation: bp-pulse 6s ease-in-out infinite alternate; }
+/* Rock : deux projecteurs de scène qui balaient */
+.bp[data-tpl="rock"] .bp-fx i { top: -22vh; width: 46vw; height: 150vh; transform-origin: 50% 0; filter: blur(26px); background: conic-gradient(from 166deg at 50% 0, transparent 0deg, color-mix(in srgb, var(--accent) 38%, transparent) 14deg, transparent 28deg); -webkit-mask-image: linear-gradient(180deg, #000, transparent 88%); mask-image: linear-gradient(180deg, #000, transparent 88%); }
+.bp[data-tpl="rock"] .bp-fx i:first-child { left: 2vw; animation: bp-sway 9s ease-in-out infinite alternate; }
+.bp[data-tpl="rock"] .bp-fx i:last-child { right: 2vw; background: conic-gradient(from 166deg at 50% 0, transparent 0deg, rgba(255, 255, 255, .17) 14deg, transparent 28deg); animation: bp-sway 13s ease-in-out infinite alternate-reverse; }
+/* Metal : des braises qui montent, et la lueur qui pulse */
+.bp[data-tpl="metal"] .bp-fx i { left: 0; top: 100vh; width: 3px; height: 3px; border-radius: 50%; background: transparent; animation: bp-up 15s linear infinite;
+  box-shadow: 6vw 4vh 0 0 #ff7a3c, 17vw 22vh 0 1px #ff5a2a, 29vw 9vh 0 0 #ffb070, 38vw 30vh 0 0 #ff7a3c, 47vw 14vh 0 1px #ff9a50, 58vw 26vh 0 0 #ff5a2a, 66vw 6vh 0 0 #ffb070, 74vw 19vh 0 1px #ff7a3c, 83vw 33vh 0 0 #ff9a50, 92vw 11vh 0 0 #ff5a2a,
+    12vw 52vh 0 0 #ff9a50, 24vw 64vh 0 0 #ff7a3c, 43vw 58vh 0 1px #ffb070, 61vw 70vh 0 0 #ff5a2a, 79vw 61vh 0 0 #ff9a50, 88vw 76vh 0 0 #ff7a3c; filter: drop-shadow(0 0 4px #ff5a2a); }
+.bp[data-tpl="metal"] .bp-fx i:last-child { animation-duration: 23s; animation-delay: -9s; margin-left: 4vw; opacity: .6; }
+/* Jazz : un projecteur lent, et de la poussière dans le faisceau */
+.bp[data-tpl="jazz"] .bp-fx i:first-child { top: -24vh; right: 4vw; width: 52vw; height: 150vh; transform-origin: 50% 0; filter: blur(30px); background: conic-gradient(from 164deg at 50% 0, transparent 0deg, color-mix(in srgb, var(--accent) 30%, transparent) 16deg, transparent 32deg); -webkit-mask-image: linear-gradient(180deg, #000, transparent 90%); mask-image: linear-gradient(180deg, #000, transparent 90%); animation: bp-sway 19s ease-in-out infinite alternate; }
+.bp[data-tpl="jazz"] .bp-fx i:last-child { left: 0; top: 100vh; width: 2px; height: 2px; border-radius: 50%; animation: bp-up 44s linear infinite; opacity: .7;
+  box-shadow: 52vw 8vh 0 0 #fff3cf, 61vw 26vh 0 0 #fff3cf, 70vw 14vh 0 1px #ffe6a8, 78vw 38vh 0 0 #fff3cf, 86vw 20vh 0 0 #ffe6a8, 66vw 52vh 0 0 #fff3cf, 74vw 66vh 0 1px #ffe6a8, 90vw 58vh 0 0 #fff3cf, 57vw 74vh 0 0 #ffe6a8; }
+/* Classique : une lumière de salle, très lente */
+.bp[data-tpl="classique"] .bp-fx i:first-child { left: 50%; top: -40vmax; width: 110vmax; height: 90vmax; margin-left: -55vmax; border-radius: 50%; background: radial-gradient(ellipse, rgba(255, 252, 240, .7), transparent 62%); animation: bp-pulse 11s ease-in-out infinite alternate; }
+/* Punk : la photocopieuse qui tremble */
+.bp[data-tpl="punk"] .bp-fx i:first-child { inset: -10px; background-image: var(--grain-k); background-size: 200px 200px; animation: bp-jit .5s steps(1) infinite; }
+/* Rap : les phares qui passent sur le mur */
+.bp[data-tpl="rap"] .bp-fx i:first-child { top: 0; left: 0; width: 44vw; height: 100vh; filter: blur(30px); background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--accent) 16%, transparent), rgba(255, 255, 255, .10), transparent); animation: bp-sweep 11s linear infinite; }
+/* Pop : des bulles qui montent */
+.bp[data-tpl="pop"] .bp-fx i { left: 0; top: 100vh; width: 46px; height: 46px; border-radius: 50%; background: transparent; animation: bp-up 26s linear infinite;
+  box-shadow: 8vw 6vh 0 6px rgba(255, 255, 255, .7), 22vw 34vh 0 -8px rgba(255, 150, 205, .5), 37vw 14vh 0 12px rgba(140, 210, 255, .45), 52vw 44vh 0 -4px rgba(255, 220, 120, .55), 68vw 8vh 0 2px rgba(255, 255, 255, .7), 81vw 30vh 0 14px rgba(255, 150, 205, .4), 93vw 52vh 0 -10px rgba(140, 210, 255, .55),
+    14vw 78vh 0 0 rgba(255, 220, 120, .5), 45vw 86vh 0 8px rgba(255, 255, 255, .6), 74vw 72vh 0 -6px rgba(255, 150, 205, .5); }
+.bp[data-tpl="pop"] .bp-fx i:last-child { animation-duration: 39s; animation-delay: -17s; margin-left: 5vw; }
+/* K-pop : les paillettes qui scintillent, et un reflet qui traverse */
+.bp[data-tpl="kpop"] .bp-fx i:first-child { inset: 0; background-image: radial-gradient(#fff 1.6px, transparent 2.4px), radial-gradient(#fff 1.2px, transparent 2px); background-size: 118px 118px, 171px 171px; background-position: 20px 30px, 70px 90px; animation: bp-twinkle 3.2s ease-in-out infinite; }
+.bp[data-tpl="kpop"] .bp-fx i:last-child { top: 0; left: 0; width: 34vw; height: 100vh; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .55), transparent); animation: bp-sweep 9s ease-in-out infinite; }
+@media (max-width: 760px) {
+  .bp-hero.has-photo { min-height: min(84vh, 700px); } .bp-nav { padding: 0 18px; gap: 14px; height: 50px; } .bp-nav b { font-size: 18px; max-width: 34%; } .bp-nav button { padding: 8px 8px; }
+  .bp-break { margin-top: 56px; height: min(48vh, 400px); } .bp-break span { bottom: 22px; } .bp-tick span { font-size: 15px; padding: 0 16px; }
+}
+@media (prefers-reduced-motion: reduce) { .bp-tick div { animation: none; } }
+
 /* ---------- Réglages de la page et du book, dans l'appli ---------- */
 .check { display: flex; align-items: center; gap: 11px; margin: 18px 0 0; font: 15.5px var(--sans); cursor: pointer; }
 .check input { width: 19px; height: 19px; accent-color: var(--accent); }

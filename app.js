@@ -804,7 +804,8 @@ const youtubeId = u => (String(u || '').match(/(?:youtu\.be\/|[?&]v=|\/embed\/|\
 const datesOf = page => (Array.isArray(page && page.dates) ? page.dates : []).filter(x => x && /^\d{4}-\d{2}-\d{2}$/.test(x.d || '') && x.where).sort((x, y) => x.d.localeCompare(y.d));
 const today = () => { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`; };
 const paras = text => esc(text).split(/\n{2,}/).map(x => `<p>${x.replace(/\n/g, '<br>')}</p>`).join('');
-// La page est composée comme un livret : une ouverture, puis des rubriques numérotées. Tous les blocs partagent le même cadre (.bp-panel).
+// La page est composée comme le site du groupe : une ouverture plein écran, un bandeau défilant, un menu, puis des rubriques numérotées.
+// Tous les blocs partagent le même cadre (.bp-panel).
 function bandPageHtml(b, photos) {
   const page = b.page && typeof b.page === 'object' ? b.page : {};
   const tag = [b.style, b.city].filter(Boolean).join(' · ');
@@ -819,13 +820,31 @@ function bandPageHtml(b, photos) {
   const next = dates.filter(x => x.d >= now);
   const past = dates.filter(x => x.d < now).reverse().slice(0, 6);
   const day = x => new Date(x.d + 'T12:00:00');
+  const wait = next[0] ? Math.round((day(next[0]) - new Date(now + 'T12:00:00')) / 864e5) : -1;
+  const soon = wait === 0 ? 'ce soir' : wait === 1 ? 'demain' : wait > 1 ? `dans ${wait} jours` : '';
   const dateLi = (x, cls) => { const d = day(x); const u = urlIn(String(x.url || '').trim());
-    return `<li class="${cls}"><time datetime="${x.d}"><b>${String(d.getDate()).padStart(2, '0')}</b><span>${esc(d.toLocaleDateString('fr-FR', { month: 'short', year: 'numeric' }))}</span></time><span class="where">${cls === 'next' ? '<em>Prochain concert</em>' : ''}${esc(x.where)}</span>${u && cls !== 'old' ? `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer">infos ↗</a>` : ''}</li>`; };
+    return `<li class="${cls}"><time datetime="${x.d}"><b>${String(d.getDate()).padStart(2, '0')}</b><span>${esc(d.toLocaleDateString('fr-FR', { month: 'short', year: 'numeric' }))}</span></time><span class="where">${cls === 'next' ? `<em>Prochain concert · ${soon}</em>` : ''}${esc(x.where)}</span>${u && cls !== 'old' ? `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer">infos ↗</a>` : ''}</li>`; };
   const mail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(page.booking || '') ? page.booking : '';
   const pics = (photos || []).filter(isCover);
-  const facts = [b.style && ['Style', b.style], b.city && ['Ville', b.city], lineup.length && ['Formation', lineup.length > 1 ? `${lineup.length} musiciens` : 'Solo'],
-    next[0] && ['Prochain concert', `${day(next[0]).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })} · ${next[0].where}`]].filter(Boolean);
+  const wide = pics.length >= 3 ? pics[1] : '';          // une grande photo en pleine largeur, au milieu de la page
+  const gal = pics.slice(wide ? 2 : 1);
+  const nextLabel = next[0] ? `${day(next[0]).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })} · ${next[0].where}` : '';
+  const facts = [b.style && ['Style', b.style], b.city && ['Ville', b.city], lineup.length && ['Formation', lineup.length > 1 ? `${lineup.length} musiciens` : 'Solo'], nextLabel && ['Prochain concert', nextLabel]].filter(Boolean);
   const lineupHtml = lineup.length ? `<ol class="bp-panel bp-lineup">${lineup.map((m, n) => `<li><span>${String(n + 1).padStart(2, '0')}</span><div><b>${esc(m.name || '')}</b><em>${esc(m.inst || '')}</em></div></li>`).join('')}</ol>` : '';
+  const menu = [];
+  const sec = (id, title, body) => { menu.push([id, title]); return `<section class="bp-sec" id="bp-${id}"><h2>${title}</h2>${body}</section>`; };
+  const parts = [];
+  if (bio || lineupHtml) parts.push(sec('groupe', bio ? 'Le groupe' : 'Line-up', `<div class="bp-two ${bio && lineupHtml ? '' : 'solo'}">${bio ? `<div class="bp-text">${paras(bio)}</div>` : ''}${lineupHtml}</div>`));
+  if (wide) parts.push(`<button type="button" class="bp-break" data-ph aria-label="Agrandir la photo"><img src="${wide}" alt="" loading="lazy">${page.tagline ? `<span>${esc(page.tagline)}</span>` : ''}</button>`);
+  if (gal.length) parts.push(sec('photos', 'Photos', `<div class="bp-gal n${Math.min(gal.length, 7)}">${gal.map(src => `<button type="button" class="bp-panel" data-ph aria-label="Agrandir la photo"><img src="${src}" alt="" loading="lazy"></button>`).join('')}</div>`));
+  if (yt) parts.push(sec('video', 'En vidéo', `<div class="bp-panel bp-frame"><iframe src="https://www.youtube-nocookie.com/embed/${yt}" title="Vidéo du groupe" loading="lazy" allow="accelerometer; encrypted-media; gyroscope; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe></div>`));
+  else if (video) parts.push(sec('video', 'En vidéo', `<div class="bp-grille"><a class="bp-panel bp-link" href="${esc(video)}" target="_blank" rel="noopener noreferrer"><b>Voir la vidéo</b><small>${esc(linkLabel(video))}</small><span aria-hidden="true">↗</span></a></div>`));
+  if (next.length || past.length) parts.push(sec('concerts', 'Concerts', `${next.length ? `<ol class="bp-panel bp-dates">${next.map((x, i) => dateLi(x, i ? '' : 'next')).join('')}</ol>` : '<p class="bp-quiet">Pas de date annoncée pour le moment.</p>'}
+        ${past.length ? `<h3>Déjà joué</h3><ol class="bp-panel bp-dates">${past.map(x => dateLi(x, 'old')).join('')}</ol>` : ''}`));
+  if (links.length) parts.push(sec('ecouter', 'Écouter', `<div class="bp-grille">${links.map(l => `<a class="bp-panel bp-link" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer"><b>${esc(l.label)}</b><small>${esc(l.sub)}</small><span aria-hidden="true">↗</span></a>`).join('')}</div>`));
+  if (mail) parts.push(sec('contact', 'Contact', `<div class="bp-panel bp-contact"><span>Booking et presse</span><a href="mailto:${esc(mail)}">${esc(mail)}</a></div>`));
+  const tick = [b.name, b.style, b.city, nextLabel && `Prochain concert : ${nextLabel}`, page.tagline].filter(Boolean);
+  const run = tick.map(x => `<span>${esc(x)}</span><i>✦</i>`).join('');
   return `<article class="bp-page">
     <header class="bp-hero ${pics[0] ? 'has-photo' : ''}">
       ${pics[0] ? `<button type="button" class="bp-hero-img" data-ph aria-label="Agrandir la photo"><img src="${pics[0]}" alt=""></button>` : ''}
@@ -838,32 +857,46 @@ function bandPageHtml(b, photos) {
         </div>
       </div>
     </header>
+    ${tick.length > 1 ? `<div class="bp-tick" aria-hidden="true"><div>${run.repeat(4)}</div></div>` : ''}
+    ${menu.length > 1 ? `<nav class="bp-nav"><b>${esc(b.name || '')}</b><div>${menu.map(([id, t]) => `<button type="button" data-go="bp-${id}">${t}</button>`).join('')}</div></nav>` : ''}
     <div class="bp-body">
       ${memo || facts.length > 1 ? `<div class="bp-intro ${memo && facts.length > 1 ? '' : 'solo'}">
         ${memo ? `<p class="bp-memo">${linkify(memo)}</p>` : ''}
         ${facts.length > 1 ? `<dl class="bp-panel bp-facts">${facts.map(([k, v]) => `<div><dt>${k}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>` : ''}</div>` : ''}
-      ${bio || lineupHtml ? `<section class="bp-sec"><h2>${bio ? 'Le groupe' : 'Line-up'}</h2>
-        <div class="bp-two ${bio && lineupHtml ? '' : 'solo'}">${bio ? `<div class="bp-text">${paras(bio)}</div>` : ''}${lineupHtml}</div></section>` : ''}
-      ${pics.length > 1 ? `<section class="bp-sec"><h2>Photos</h2><div class="bp-gal n${Math.min(pics.length - 1, 7)}">${pics.slice(1).map(src => `<button type="button" class="bp-panel" data-ph aria-label="Agrandir la photo"><img src="${src}" alt="" loading="lazy"></button>`).join('')}</div></section>` : ''}
-      ${yt ? `<section class="bp-sec"><h2>En vidéo</h2><div class="bp-panel bp-frame"><iframe src="https://www.youtube-nocookie.com/embed/${yt}" title="Vidéo du groupe" loading="lazy" allow="accelerometer; encrypted-media; gyroscope; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe></div></section>`
-        : video ? `<section class="bp-sec"><h2>En vidéo</h2><div class="bp-grille"><a class="bp-panel bp-link" href="${esc(video)}" target="_blank" rel="noopener noreferrer"><b>Voir la vidéo</b><small>${esc(linkLabel(video))}</small><span aria-hidden="true">↗</span></a></div></section>` : ''}
-      ${next.length || past.length ? `<section class="bp-sec"><h2>Concerts</h2>
-        ${next.length ? `<ol class="bp-panel bp-dates">${next.map((x, i) => dateLi(x, i ? '' : 'next')).join('')}</ol>` : '<p class="bp-quiet">Pas de date annoncée pour le moment.</p>'}
-        ${past.length ? `<h3>Déjà joué</h3><ol class="bp-panel bp-dates">${past.map(x => dateLi(x, 'old')).join('')}</ol>` : ''}</section>` : ''}
-      ${links.length ? `<section class="bp-sec"><h2>Écouter et suivre</h2><div class="bp-grille">${links.map(l => `<a class="bp-panel bp-link" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer"><b>${esc(l.label)}</b><small>${esc(l.sub)}</small><span aria-hidden="true">↗</span></a>`).join('')}</div></section>` : ''}
-      ${mail ? `<section class="bp-sec"><h2>Contact</h2><div class="bp-panel bp-contact"><span>Booking et presse</span><a href="mailto:${esc(mail)}">${esc(mail)}</a></div></section>` : ''}
+      ${parts.join('\n')}
     </div>
     <footer class="bp-foot"><a href="${esc(location.pathname)}">Rec<i>.</i></a><span>le carnet d'idées des groupes</span></footer>
   </article>`;
 }
-function showBandPage(b, preview = false, photos = []) {
+// Les photos en grand, avec précédente et suivante.
+function bandZoom(el, i) {
+  const list = [...el.querySelectorAll('[data-ph] img')].map(x => x.src);
+  if (!list.length) return;
+  i = (i + list.length) % list.length;
+  let z = el.querySelector('.bp-zoom');
+  if (!z) { z = document.createElement('div'); z.className = 'bp-zoom'; el.append(z); }
+  z.dataset.i = i;
+  z.innerHTML = `<img src="${list[i]}" alt="">${list.length > 1 ? `<button type="button" data-z="-1" aria-label="Photo précédente">‹</button><button type="button" data-z="1" aria-label="Photo suivante">›</button><span>${i + 1} / ${list.length}</span>` : ''}`;
+}
+let BP_IO = null;
+function showBandPage(b, preview = false, photos = [], again = false) {
   let el = $('#bandpage');
   if (!el) {
     el = document.createElement('div'); el.id = 'bandpage'; el.className = 'bp'; document.body.append(el);
     el.addEventListener('click', e => {
-      if (e.target.closest('.bp-zoom')) return e.target.closest('.bp-zoom').remove();
+      const z = el.querySelector('.bp-zoom');
+      if (z) { const step = e.target.closest('[data-z]'); if (step) bandZoom(el, +z.dataset.i + +step.dataset.z); else z.remove(); return; }
+      const go = e.target.closest('[data-go]');
+      if (go) { const t = el.querySelector('#' + go.dataset.go); if (t) el.scrollTo({ top: t.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop - 76, behavior: 'smooth' }); return; }
       const ph = e.target.closest('[data-ph]');
-      if (ph) { const z = document.createElement('div'); z.className = 'bp-zoom'; z.innerHTML = `<img src="${ph.querySelector('img').src}" alt="">`; el.append(z); }
+      if (ph) bandZoom(el, [...el.querySelectorAll('[data-ph]')].indexOf(ph));
+    });
+    document.addEventListener('keydown', e => {
+      const z = el.querySelector('.bp-zoom');
+      if (!z || el.hidden) return;
+      if (e.key === 'Escape') z.remove();
+      if (e.key === 'ArrowLeft') bandZoom(el, +z.dataset.i - 1);
+      if (e.key === 'ArrowRight') bandZoom(el, +z.dataset.i + 1);
     });
   }
   const tpl = tplOf(b && b.page);
@@ -872,13 +905,25 @@ function showBandPage(b, preview = false, photos = []) {
   const accent = b && b.page && /^#[0-9a-f]{6}$/i.test(b.page.accent || '') ? b.page.accent : '';
   if (accent) el.style.setProperty('--accent', accent); else el.style.removeProperty('--accent');
   el.innerHTML = (preview ? '<div class="bp-bar"><span>Aperçu de la page publique</span><button class="txt-btn" data-bp-close>fermer</button></div>' : '') +
+    '<div class="bp-fx" aria-hidden="true"><i></i><i></i></div>' +
     (b ? bandPageHtml(b, photos) : `<article class="bp-page bp-none"><h1>Cette page n'existe pas</h1><p class="bp-memo">Le groupe l'a peut-être fermée, ou l'adresse est incomplète.</p>
       <footer class="bp-foot"><a href="${esc(location.pathname)}">Rec<i>.</i></a><span>le carnet d'idées des groupes</span></footer></article>`);
   el.hidden = false;
-  el.scrollTop = 0;
+  if (!again) el.scrollTop = 0;
+  el.classList.toggle('framed', preview);
   document.body.classList.add('paging');
   const close = el.querySelector('[data-bp-close]');
   if (close) close.onclick = () => { el.hidden = true; el.innerHTML = ''; document.body.classList.remove('paging'); };
+  // Les rubriques entrent en scène à mesure qu'on descend (sauf si l'appareil demande moins d'animations).
+  if (BP_IO) { BP_IO.disconnect(); BP_IO = null; }
+  const lively = !matchMedia('(prefers-reduced-motion: reduce)').matches && 'IntersectionObserver' in window;
+  el.classList.toggle('anim', lively);
+  el.classList.toggle('again', again);
+  if (!lively) return;
+  BP_IO = new IntersectionObserver(list => list.forEach(x => { if (x.isIntersecting) { x.target.classList.add('in'); BP_IO.unobserve(x.target); } }), { root: el, rootMargin: '0px 0px -8% 0px' });
+  el.querySelectorAll('.bp-intro, .bp-sec, .bp-break').forEach(x => {
+    if (again && x.getBoundingClientRect().top < innerHeight) x.classList.add('in', 'now'); else BP_IO.observe(x);
+  });
 }
 // Les photos du groupe, gardées en mémoire le temps de la session.
 const PHOTOS = new Map();
@@ -1026,7 +1071,7 @@ async function openPublicPage(raw) {
   // Les photos arrivent après le texte : la page s'affiche tout de suite.
   try {
     const photos = await cloud.publicPhotos(slug);
-    if (Array.isArray(photos) && photos.length) { const el = $('#bandpage'); const top = el.scrollTop; showBandPage(b, false, photos); el.scrollTop = top; }
+    if (Array.isArray(photos) && photos.length) { const el = $('#bandpage'); showBandPage(b, false, photos, true); }
   } catch (e) { console.error(e); }
 }
 // Depuis la fiche du groupe : l'adresse à partager, son QR code, et l'aperçu.
