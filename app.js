@@ -2335,7 +2335,9 @@ function openSheet(html, mount) {
       resolve(value);
     };
     sheetClose = close;
-    bd.onclick = e => { if (e.target === bd) close(undefined); };
+    let pressInside = false;
+    bd.onpointerdown = e => { pressInside = e.target !== bd; };
+    bd.onclick = e => { if (e.target === bd && !pressInside) close(undefined); pressInside = false; };
     mount && mount(sh, close);
   });
 }
@@ -3179,7 +3181,7 @@ function toggleRecMetro() {
   if (!REC.recorder) return;
   REC.metro = !REC.metro;
   try { localStorage.setItem('fredon.metro', REC.metro ? '1' : '0'); } catch {}
-  if (REC.metro) { REC.metroUsed = true; startMetro(REC.bpm); } else stopMetro();
+  if (REC.metro) { REC.metroUsed = true; if (!REC.pausedAt) startMetro(REC.bpm); } else stopMetro();
   syncMetroUI();
 }
 
@@ -3344,19 +3346,34 @@ async function routeChannels(stream, canal) {
   }
 }
 
+// Le panneau Entrée est un ampli. La façade affiche l'entrée choisie ; deux sélecteurs règlent le son et le canal ;
+// les entrées de l'ordinateur sont des pads sur la toile. Rien ne change avant « Valider » : « Annuler », Échap ou un clic à côté gardent l'entrée d'avant.
+const AMP_MIC = '<rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M6 11.5a6 6 0 0012 0M12 17.5V21"/>';
+const AMP_JACK = '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/>';
+const AMP_SEL = { // positions : valeur, étiquette, angle du potard
+  son: { label: 'Son', opts: [['voix', 'Voix', -40], ['instrument', 'Instrument', 40]] },
+  canal: { label: 'Canal', opts: [['1', '1', -50], ['12', '1+2', 0], ['2', '2', 50]] },
+};
+const ampSel = name => {
+  const s = AMP_SEL[name];
+  return `<div class="amp-sel" data-sel="${name}" role="radiogroup" aria-label="${s.label}">
+    <div class="amp-sel-pos">${s.opts.map(([v, l]) => `<button role="radio" aria-checked="false" data-${name}="${v}">${l}</button>`).join('')}</div>
+    <button class="amp-dial" data-dial="${name}" tabindex="-1" aria-hidden="true"></button>
+    <span class="amp-sel-name" aria-hidden="true">${s.label}</span>
+  </div>`;
+};
 async function openInputSheet() {
+  const before = JSON.stringify(loadInput());
   let cfg = loadInput();
-  const before = JSON.stringify(cfg);
   let devs = await audioInputs();
+  const son = () => (inputRaw(cfg) ? 'instrument' : 'voix');
   const paint = sh => {
     const body = sh.querySelector('#inputBody');
     if (!body) return;
     const named = devs.some(d => d.label);
     const def = devs.find(d => d.deviceId === 'default');
     const items = [{ id: '', nom: 'Par défaut', note: def ? inputName(def.label) : '' }];
-    for (const d of devs) {
-      if (d.deviceId && d.deviceId !== 'default' && d.deviceId !== 'communications') items.push({ id: d.deviceId, nom: inputName(d.label) || 'Entrée', note: '' });
-    }
+    for (const d of devs) if (d.deviceId && !ALIAS(d.deviceId)) items.push({ id: d.deviceId, nom: inputName(d.label) || 'Entrée', note: '' });
     let cur = cfg.id || '';
     if (cur && !items.some(i => i.id === cur)) {
       const same = named && cfg.nom && items.find(i => i.nom === cfg.nom);
@@ -3366,23 +3383,36 @@ async function openInputSheet() {
     const raw = inputRaw(cfg);
     const canal = cfg.canal || '12';
     const mono = INPUT.voies.get(cur || 'default') === 1;
-    body.innerHTML = `
-      <div class="choices picks input-picks">${items.map(i => `<button class="choice pick ${i.id === cur ? 'on' : ''}" data-dev="${esc(i.id)}"><span class="ico"></span><span>${esc(i.nom)}<small>${esc(i.note)}</small></span></button>`).join('')}</div>
-      ${named ? '' : '<p class="small-print">Le nom des entrées s\'affiche une fois le micro autorisé. <button class="txt-btn accent" data-allow>autoriser le micro</button></p>'}
-      <label class="label">Son</label>
-      <div class="seg"><button data-son="voix" class="${raw ? '' : 'on'}">Voix</button><button data-son="instrument" class="${raw ? 'on' : ''}">Instrument</button></div>
-      <p class="hint">${raw ? 'Le son brut, sans réduction de bruit ni volume automatique. Pour une guitare ou un micro branchés dans une carte son.' : 'Le volume se règle tout seul. Pour le micro de l\'ordinateur ou du téléphone.'}</p>
-      ${raw && !mono ? `<label class="label">Canal</label>
-      <div class="seg">${[['1', 'Entrée 1'], ['2', 'Entrée 2'], ['12', 'Les deux']].map(([v, l]) => `<button data-canal="${v}" class="${canal === v ? 'on' : ''}">${l}</button>`).join('')}</div>
-      <p class="hint">Une carte à deux entrées met l'entrée 1 à gauche et l'entrée 2 à droite. La prise, elle, est enregistrée au centre.</p>` : ''}`;
+    sh.querySelector('#inputName').textContent = items.find(i => i.id === cur).nom;
+    // Les sélecteurs restent en place : seul le potard tourne. Le canal ne compte qu'en instrument, sur une entrée à deux canaux.
+    const setSel = (name, val, off = '') => {
+      const box = sh.querySelector(`[data-sel="${name}"]`);
+      const opt = AMP_SEL[name].opts.find(o => o[0] === val) || AMP_SEL[name].opts[0];
+      box.classList.toggle('off', !!off);
+      box.title = off;
+      const dial = box.querySelector('.amp-dial');
+      dial.style.setProperty('--a', `${opt[2]}deg`);
+      dial.disabled = !!off;
+      box.querySelectorAll('[role="radio"]').forEach(b => {
+        const on = b.dataset[name] === opt[0];
+        b.classList.toggle('on', on);
+        b.setAttribute('aria-checked', on);
+        b.disabled = !!off;
+      });
+    };
+    setSel('son', son());
+    setSel('canal', canal, !raw ? 'En instrument seulement' : mono ? "Cette entrée n'a qu'un canal" : '');
+    sh.querySelector('#inputNote').textContent = (raw
+      ? 'Le son brut, sans traitement : pour une guitare ou un micro branchés dans une carte son.'
+      : "Le volume se règle tout seul : pour le micro de l'ordi ou du téléphone.")
+      + (raw && !mono ? { 1: " On enregistre l'entrée 1 de la carte.", 2: " On enregistre l'entrée 2 de la carte.", 12: ' On enregistre les deux entrées de la carte, mélangées.' }[canal] || '' : '');
+    body.innerHTML = `<div class="pads">${items.map(i => `<button class="pad ${i.id === cur ? 'on' : ''}" data-dev="${esc(i.id)}" aria-pressed="${i.id === cur}">${ico(i.id ? AMP_JACK : AMP_MIC)}<b>${esc(i.nom)}</b>${i.note ? `<small>${esc(i.note)}</small>` : ''}</button>`).join('')}</div>
+      ${named ? '' : `<p class="amp-allow">Le nom des entrées s'affiche une fois le micro autorisé. <button class="txt-btn accent" data-allow>autoriser le micro</button></p>`}`;
     body.querySelectorAll('[data-dev]').forEach(b => { b.onclick = () => {
       const id = b.dataset.dev;
       cfg = { ...cfg, id, nom: id ? items.find(i => i.id === id).nom : '', son: id ? 'instrument' : 'voix' };
-      saveInput(cfg);
       paint(sh);
     }; });
-    body.querySelectorAll('[data-son]').forEach(b => { b.onclick = () => { cfg = { ...cfg, son: b.dataset.son }; saveInput(cfg); paint(sh); }; });
-    body.querySelectorAll('[data-canal]').forEach(b => { b.onclick = () => { cfg = { ...cfg, canal: b.dataset.canal }; saveInput(cfg); paint(sh); }; });
     const allow = body.querySelector('[data-allow]');
     if (allow) allow.onclick = async () => {
       try { (await navigator.mediaDevices.getUserMedia({ audio: true })).getTracks().forEach(t => t.stop()); }
@@ -3392,19 +3422,42 @@ async function openInputSheet() {
     };
   };
   let refresh = null;
-  await openSheet(`<h2>Entrée</h2>
-    <p class="sub">D'où vient le son des prises.</p>
-    <div id="inputBody"></div>`,
-  sh => {
+  const ok = await openSheet(`<div class="amp amp-in amp-off">
+    <div class="amp-head">
+      <div class="amp-name"><p class="pads-kind"><i class="amp-led"></i>Entrée</p><h2 id="inputName"></h2></div>
+      <div class="amp-controls">${ampSel('son')}${ampSel('canal')}</div>
+    </div>
+    <div class="amp-grille"><div id="inputBody"></div><p class="amp-badge" aria-hidden="true">Rec.</p></div>
+    <p class="amp-note" id="inputNote"></p>
+    <div class="row amp-foot"><button class="btn" data-x>Annuler</button><button class="btn primary" data-ok>Valider</button></div>
+  </div>`,
+  (sh, close) => {
+    sh.querySelectorAll('[data-son]').forEach(b => { b.onclick = () => { cfg = { ...cfg, son: b.dataset.son }; paint(sh); }; });
+    sh.querySelectorAll('[data-canal]').forEach(b => { b.onclick = () => { cfg = { ...cfg, canal: b.dataset.canal }; paint(sh); }; });
+    // Le potard lui-même passe à la position suivante.
+    sh.querySelectorAll('[data-dial]').forEach(d => { d.onclick = () => {
+      const name = d.dataset.dial, opts = AMP_SEL[name].opts;
+      const i = opts.findIndex(o => o[0] === (name === 'son' ? son() : cfg.canal || '12'));
+      cfg = { ...cfg, [name]: opts[(i + 1) % opts.length][0] };
+      paint(sh);
+    }; });
+    sh.querySelector('[data-x]').onclick = () => close(false);
+    sh.querySelector('[data-ok]').onclick = () => close(true);
     paint(sh);
+    // L'ampli s'allume : le voyant s'éclaire, les potards tournent jusqu'à leur position.
+    const amp = sh.querySelector('.amp-off');
+    void amp.offsetWidth; // l'état éteint est posé avant de s'allumer, sinon rien ne tourne
+    setTimeout(() => amp.classList.remove('amp-off'), 40);
     // Une carte branchée ou débranchée pendant que le panneau est ouvert : la liste suit.
     refresh = async () => { devs = await audioInputs(); paint(sh); };
     navigator.mediaDevices?.addEventListener?.('devicechange', refresh);
   });
-  if (refresh) navigator.mediaDevices.removeEventListener('devicechange', refresh);
+  if (refresh) navigator.mediaDevices?.removeEventListener?.('devicechange', refresh);
+  if (ok !== true || JSON.stringify(cfg) === before) return;
+  saveInput(cfg);
   // Pendant une prise, on ne la relance que si ce qui serait enregistré change vraiment : une autre entrée, un autre son, un autre canal.
-  // Retoucher ce qui était déjà choisi ne coûte pas la prise ; brancher la carte prévue, si.
-  if (REC.recorder && REC.input && JSON.stringify(loadInput()) !== before) {
+  // Valider ce qui était déjà choisi ne coûte pas la prise ; brancher la carte prévue, si.
+  if (REC.recorder && REC.input) {
     const c = loadInput(), list = await audioInputs();
     const there = !!c.id && (list.some(d => d.deviceId === c.id) || !list.some(d => d.label));
     const id = there ? c.id : '', raw = there ? inputRaw(c) : (c.id ? false : inputRaw(c)), now = REC.input;
@@ -3414,8 +3467,55 @@ async function openInputSheet() {
 
 // Changer d'entrée pendant une prise : au début, on la reprend de zéro avec la nouvelle ; une prise déjà longue continue.
 function relaunchRecording() {
-  if ((Date.now() - REC.start) / 1000 > 30) { toast('La prise continue. Nouvelle entrée à la prochaine prise.'); return; }
-  REC.restart = { target: REC.target, over: REC.overId, bpm: REC.bpm, metro: REC.metro };
+  if (REC.starting || REC.restart) return;
+  if (recElapsed() > 30) { toast('La prise continue. Nouvelle entrée à la prochaine prise.'); return; }
+  REC.restart = { target: REC.target, over: REC.overId, bpm: REC.bpm, metro: REC.metro, paused: !!REC.pausedAt };
+  stopRecording(true);
+}
+
+// Le temps enregistré : depuis le départ, sans les pauses.
+const recElapsed = () => (REC.start ? (Date.now() - REC.start - (REC.pausedMs || 0) - (REC.pausedAt ? Date.now() - REC.pausedAt : 0)) / 1000 : 0);
+const canPause = () => !!window.MediaRecorder && typeof MediaRecorder.prototype.pause === 'function';
+// Pause : l'enregistreur s'arrête sans fermer la prise, le compteur et la courbe se figent, le métronome se tait.
+// Le niveau du bas reste vivant : on voit que l'entrée arrive toujours. Par-dessus une prise, pas de pause : les pistes ne s'arrêtent pas avec elle.
+function togglePause() {
+  const r = REC.recorder;
+  if (!r || REC.restart || REC.starting || REC.overId) return;
+  if (r.state === 'recording') {
+    try { r.pause(); } catch { return; }
+    REC.pausedAt = Date.now();
+    stopMetro();
+  } else if (r.state === 'paused' && REC.pausedAt) {
+    try { r.resume(); } catch { return; }
+    REC.pausedMs = (REC.pausedMs || 0) + Date.now() - REC.pausedAt;
+    delete REC.pausedAt;
+    if (REC.metro) startMetro(REC.bpm);
+  }
+  syncPauseUI();
+}
+function syncPauseUI() {
+  const paused = !!REC.pausedAt;
+  $('#recOverlay').classList.toggle('paused', paused);
+  const b = $('#recPause');
+  b.setAttribute('aria-label', paused ? "Reprendre l'enregistrement" : 'Mettre en pause');
+  b.querySelector('.key-lbl').textContent = paused ? 'reprendre' : 'pause';
+  document.querySelector('.rec-live').textContent = paused ? 'pause' : 'rec';
+}
+// Recommencer : la prise en cours est jetée et une nouvelle part aussitôt, avec la même entrée, le même métronome, la même suite.
+// Au-delà de 30 secondes enregistrées, on demande d'abord : un appui de travers ne doit pas coûter une longue prise.
+let restartAsk = null; // la fermeture de la question « Recommencer la prise ? », tant qu'elle est affichée
+async function restartRecording() {
+  const rec = REC.recorder;
+  if (!rec || REC.restart || REC.starting) return;
+  const sec = recElapsed();
+  if (sec > 30) {
+    const asking = confirmBox('Recommencer la prise ?', `Les ${fmtDur(Math.floor(sec))} enregistrées seront effacées.`, 'Recommencer');
+    restartAsk = sheetClose;
+    const yes = await asking;
+    restartAsk = null;
+    if (!yes || REC.recorder !== rec || REC.restart || REC.starting) return;
+  }
+  REC.restart = { target: REC.target, over: REC.overId, bpm: REC.bpm, metro: REC.metro, quiet: true };
   stopRecording(true);
 }
 
@@ -3492,8 +3592,10 @@ async function startRecordingNow(targetIdeaId, overId, again) {
     };
   }
   recorder.start(1000);
+  if (again && again.paused && !overTake && canPause()) { try { recorder.pause(); REC.pausedAt = Date.now(); } catch {} }
 
-  try { REC.wake = await navigator.wakeLock?.request('screen'); } catch {}
+  // L'écran reste allumé. Sans attendre : la suite se règle d'un seul tenant, aucun appui ne tombe sur une prise à moitié prête.
+  try { navigator.wakeLock?.request('screen').then(w => { if (REC.recorder === recorder) REC.wake = w; else w.release(); }).catch(() => {}); } catch {}
 
   if (route) { REC.ctx = route.ctx; REC.analyser = route.analyser; }
   else try {
@@ -3513,9 +3615,11 @@ async function startRecordingNow(targetIdeaId, overId, again) {
   REC.metroUsed = REC.metro;
   syncMetroUI();
   syncInputUI();
-  if (REC.metro) startMetro(REC.bpm);
+  $('#recPause').hidden = !!overTake || !canPause();
+  syncPauseUI();
+  if (REC.metro && !REC.pausedAt) startMetro(REC.bpm);
   $('#recOverlay').hidden = false;
-  if (again) toast(`Prise reprise avec « ${input.label || 'Micro'} »`);
+  if (again && !again.quiet) toast(`Prise reprise avec « ${input.label || 'Micro'} »`);
   tickRecording();
 }
 
@@ -3528,7 +3632,7 @@ function setMeter(el, level) {
 }
 function tickRecording() {
   if (!REC.recorder) return;
-  const sec = (Date.now() - REC.start) / 1000;
+  const sec = recElapsed();
   $('#recTime').textContent = fmtDur(Math.floor(sec));
   $('#recDeckTime').textContent = deckClock(sec);
   const cv = $('#levels');
@@ -3543,7 +3647,8 @@ function tickRecording() {
   }
   setMeter($('#recMeter'), level);
   REC.peak = Math.max(REC.peak || 0, level);
-  if (!REC.lastTick || Date.now() - REC.lastTick >= 50) { REC.levels.push(REC.peak); REC.peak = 0; REC.lastTick = Date.now(); }
+  if (REC.pausedAt) REC.peak = 0; // en pause, la courbe ne défile pas
+  else if (!REC.lastTick || Date.now() - REC.lastTick >= 50) { REC.levels.push(REC.peak); REC.peak = 0; REC.lastTick = Date.now(); }
   const n = 180;
   if (REC.levels.length > n) REC.levels.shift();
   g.clearRect(0, 0, cv.width, cv.height);
@@ -3560,11 +3665,13 @@ function tickRecording() {
 function stopRecording(cancel = false) {
   if (!REC.recorder) { if (REC.starting) REC.abort = cancel || REC.abort === 'cancel' ? 'cancel' : 'stop'; return; }
   REC.cancelled = cancel;
-  REC.duration = (Date.now() - REC.start) / 1000;
+  REC.duration = recElapsed();
   if (REC.recorder.state !== 'inactive') REC.recorder.stop();
 }
 
 function onRecordingStopped() {
+  if (restartAsk && sheetClose === restartAsk) restartAsk(false); // la prise s'est arrêtée : la question ne tient plus
+  restartAsk = null;
   cancelAnimationFrame(REC.raf);
   stopMetro();
   if (REC.over) stopMix();
@@ -3573,11 +3680,13 @@ function onRecordingStopped() {
   try { REC.ctx && REC.ctx.close(); } catch {}
   try { REC.wake && REC.wake.release(); } catch {}
   if (!REC.restart) $('#recOverlay').hidden = true;
+  $('#recOverlay').classList.remove('paused');
   const type = REC.recorder.mimeType || REC.chunks[0]?.type || 'audio/webm';
-  const duration = REC.duration ?? (Date.now() - REC.start) / 1000;
+  const duration = REC.duration ?? recElapsed();
   const result = { blob: new Blob(REC.chunks, { type }), duration, mime: type.split(';')[0], bpm: REC.metroUsed ? REC.bpm : null, over: REC.over || null };
   const { cancelled, target, restart } = REC;
   for (const k of Object.keys(REC)) delete REC[k];
+  syncPauseUI();
   if (restart) { startRecording(restart.target, restart.over, restart); return; }
   if (cancelled) return;
   if (result.duration < 0.6 || !result.blob.size) { toast('Prise trop courte, ignorée.'); return; }
@@ -5057,6 +5166,8 @@ function wireUi() {
   $('#recBtn').onclick = () => startRecording(null);
   $('#recStop').onclick = () => stopRecording(false);
   $('#recCancel').onclick = () => stopRecording(true);
+  $('#recPause').onclick = togglePause;
+  $('#recRestart').onclick = restartRecording;
   $('#metroToggle').onclick = toggleRecMetro;
   $('#metroMinus').onclick = () => setRecBpm(REC.bpm - 1);
   $('#metroPlus').onclick = () => setRecBpm(REC.bpm + 1);

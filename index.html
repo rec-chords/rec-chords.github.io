@@ -60,9 +60,16 @@
       <p class="rec-hint" id="metroHint" hidden>Au casque, sinon le clic s'entend dans la prise.</p>
       <canvas id="levels" width="1800" height="180"></canvas>
     </div>
-    <button class="stop-bar" id="recStop" aria-label="Arrêter l'enregistrement">
-      <span class="deck-time" id="recDeckTime">0:00</span><span class="deck-main"><span class="deck-ring"><span class="stop-sq"></span></span><span>Arrêter</span><span class="kbd">espace</span></span><span class="deck-meter" id="recMeter" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></span>
-    </button>
+    <!-- Le magnéto pendant une prise : recommencer, arrêter, pause -->
+    <div class="stop-bar">
+      <span class="deck-time" id="recDeckTime">0:00</span>
+      <span class="deck-keys">
+        <button class="deck-key" id="recRestart" aria-label="Recommencer la prise"><span class="key-ring"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12a7.5 7.5 0 1 0 2.3-5.4L4.5 8.8"/><path d="M4.5 4.3v4.5H9"/></svg></span><span class="key-lbl">recommencer</span></button>
+        <button class="deck-main" id="recStop" aria-label="Arrêter l'enregistrement"><span class="deck-ring"><span class="stop-sq"></span></span><span class="deck-lbl">Arrêter</span><span class="kbd">espace</span></button>
+        <button class="deck-key" id="recPause" aria-label="Mettre en pause"><span class="key-ring"><i class="pause-ico"></i></span><span class="key-lbl">pause</span></button>
+      </span>
+      <span class="deck-meter" id="recMeter" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></span>
+    </div>
   </div>
 
   <!-- Panneau générique (ranger une prise, menus, réglages…) -->
