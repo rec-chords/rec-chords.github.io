@@ -2851,8 +2851,163 @@ function pickMime() {
   return c.find(m => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(m)) || '';
 }
 
-async function startRecording(targetIdeaId = null, overId = null) {
+/* ---------------- Entrée audio ---------------- */
+// Ce qu'enregistre « Enregistrer » : le micro par défaut, ou une carte son (une guitare branchée dans une Scarlett…).
+// fredon.entree = { id, nom, son: 'voix' | 'instrument', canal: '1' | '2' | '12' }. Sans réglage : le micro par défaut, en voix.
+// Choisir une carte passe en « instrument » : le son brut, sans le traitement prévu pour la voix, qui abîme une guitare.
+const INPUT = { voies: new Map() }; // nombre de canaux vu pour chaque entrée, en instrument
+const loadInput = () => { try { return JSON.parse(localStorage.getItem('fredon.entree')) || {}; } catch { return {}; } };
+const saveInput = v => { try { localStorage.setItem('fredon.entree', JSON.stringify(v)); } catch {} };
+const inputName = label => (label || '').replace(/^(par défaut|défaut|default|communications)\s*-\s*/i, '').replace(/\s*\([0-9a-f]{4}:[0-9a-f]{4}\)$/i, '').trim();
+const inputRaw = cfg => (cfg.id ? cfg.son !== 'voix' : cfg.son === 'instrument');
+const describeInput = cfg => `${cfg.id ? cfg.nom || 'Entrée choisie' : 'Par défaut'}${inputRaw(cfg) ? ' · instrument' : ''}`;
+async function audioInputs() {
+  try { return (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'audioinput'); } catch { return []; }
+}
+function audioConstraints(id, raw) {
+  // Voix : pas de réduction de bruit ni d'annulation d'écho, on garde le son tel quel, avec un volume réglé tout seul.
+  // Instrument : aucun traitement, et les deux entrées de la carte si elle en a deux.
+  const a = { echoCancellation: false, noiseSuppression: false, autoGainControl: !raw };
+  if (raw) a.channelCount = { ideal: 2 };
+  if (id) a.deviceId = { exact: id };
+  return a;
+}
+// Ouvre l'entrée choisie ; si elle a disparu (carte débranchée, prise par une autre appli), le micro par défaut.
+async function openInput() {
+  const cfg = loadInput();
+  let id = cfg.id || '';
+  if (id) {
+    const devs = await audioInputs();
+    if (devs.some(d => d.label) && !devs.some(d => d.deviceId === id)) {
+      // L'identifiant change parfois (autre port USB) : on retrouve la carte par son nom.
+      const same = cfg.nom && devs.find(d => inputName(d.label) === cfg.nom);
+      id = same ? same.deviceId : '';
+      if (same) saveInput({ ...cfg, id });
+    }
+  }
+  const open = async (dev, raw) => {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints(dev, raw) });
+    const track = stream.getAudioTracks()[0];
+    const voies = track?.getSettings?.().channelCount;
+    if (raw && voies) INPUT.voies.set(dev || 'default', voies);
+    return { stream, input: { id: dev, raw, canal: cfg.canal || '12', voies, label: inputName(track?.label) } };
+  };
+  if (id) {
+    try { return await open(id, inputRaw(cfg)); }
+    catch (e) { if (e.name === 'NotAllowedError' || e.name === 'SecurityError') throw e; }
+  }
+  const res = await open('', cfg.id ? false : inputRaw(cfg));
+  if (cfg.id) toast(`« ${cfg.nom || 'Entrée choisie'} » indisponible : micro par défaut`);
+  return res;
+}
+// Une carte à deux entrées donne un son stéréo : la guitare d'un côté (entrée 1 à gauche), rien de l'autre.
+// On enregistre l'entrée choisie, ou les deux mélangées, au centre.
+async function routeChannels(stream, canal) {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC || !window.MediaStreamAudioDestinationNode) return null;
+  let ctx;
+  try {
+    ctx = new AC();
+    if (ctx.state !== 'running') await Promise.race([ctx.resume(), new Promise(r => setTimeout(r, 500))]);
+    if (ctx.state !== 'running') { ctx.close(); return null; } // moteur audio à l'arrêt : la prise serait muette
+    const src = ctx.createMediaStreamSource(stream);
+    const split = ctx.createChannelSplitter(2);
+    const mono = ctx.createGain();
+    mono.channelCount = 1;
+    mono.channelCountMode = 'explicit';
+    src.connect(split);
+    if (canal !== '2') split.connect(mono, 0);
+    if (canal !== '1') split.connect(mono, 1);
+    const dest = ctx.createMediaStreamDestination();
+    dest.channelCount = 1;
+    mono.connect(dest);
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 1024;
+    mono.connect(analyser);
+    return { ctx, analyser, stream: dest.stream };
+  } catch {
+    try { ctx && ctx.close(); } catch {}
+    return null;
+  }
+}
+
+async function openInputSheet() {
+  let cfg = loadInput();
+  const before = JSON.stringify(cfg);
+  let devs = await audioInputs();
+  const paint = sh => {
+    const body = sh.querySelector('#inputBody');
+    if (!body) return;
+    const named = devs.some(d => d.label);
+    const def = devs.find(d => d.deviceId === 'default');
+    const items = [{ id: '', nom: 'Par défaut', note: def ? inputName(def.label) : '' }];
+    for (const d of devs) {
+      if (d.deviceId && d.deviceId !== 'default' && d.deviceId !== 'communications') items.push({ id: d.deviceId, nom: inputName(d.label) || 'Entrée', note: '' });
+    }
+    let cur = cfg.id || '';
+    if (cur && !items.some(i => i.id === cur)) {
+      const same = named && cfg.nom && items.find(i => i.nom === cfg.nom);
+      if (same) cur = same.id;
+      else items.push({ id: cur, nom: cfg.nom || 'Entrée choisie', note: named ? 'débranchée' : '' });
+    }
+    const raw = inputRaw(cfg);
+    const canal = cfg.canal || '12';
+    const mono = INPUT.voies.get(cur || 'default') === 1;
+    body.innerHTML = `
+      <div class="choices picks input-picks">${items.map(i => `<button class="choice pick ${i.id === cur ? 'on' : ''}" data-dev="${esc(i.id)}"><span class="ico"></span><span>${esc(i.nom)}<small>${esc(i.note)}</small></span></button>`).join('')}</div>
+      ${named ? '' : '<p class="small-print">Le nom des entrées s\'affiche une fois le micro autorisé. <button class="txt-btn accent" data-allow>autoriser le micro</button></p>'}
+      <label class="label">Son</label>
+      <div class="seg"><button data-son="voix" class="${raw ? '' : 'on'}">Voix</button><button data-son="instrument" class="${raw ? 'on' : ''}">Instrument</button></div>
+      <p class="hint">${raw ? 'Le son brut, sans réduction de bruit ni volume automatique. Pour une guitare ou un micro branchés dans une carte son.' : 'Le volume se règle tout seul. Pour le micro de l\'ordinateur ou du téléphone.'}</p>
+      ${raw && !mono ? `<label class="label">Canal</label>
+      <div class="seg">${[['1', 'Entrée 1'], ['2', 'Entrée 2'], ['12', 'Les deux']].map(([v, l]) => `<button data-canal="${v}" class="${canal === v ? 'on' : ''}">${l}</button>`).join('')}</div>
+      <p class="hint">Une carte à deux entrées met l'entrée 1 à gauche et l'entrée 2 à droite. La prise, elle, est enregistrée au centre.</p>` : ''}`;
+    body.querySelectorAll('[data-dev]').forEach(b => { b.onclick = () => {
+      const id = b.dataset.dev;
+      cfg = { ...cfg, id, nom: id ? items.find(i => i.id === id).nom : '', son: id ? 'instrument' : 'voix' };
+      saveInput(cfg);
+      paint(sh);
+    }; });
+    body.querySelectorAll('[data-son]').forEach(b => { b.onclick = () => { cfg = { ...cfg, son: b.dataset.son }; saveInput(cfg); paint(sh); }; });
+    body.querySelectorAll('[data-canal]').forEach(b => { b.onclick = () => { cfg = { ...cfg, canal: b.dataset.canal }; saveInput(cfg); paint(sh); }; });
+    const allow = body.querySelector('[data-allow]');
+    if (allow) allow.onclick = async () => {
+      try { (await navigator.mediaDevices.getUserMedia({ audio: true })).getTracks().forEach(t => t.stop()); }
+      catch { toast('Micro refusé : autorise-le pour cette page dans le navigateur.'); return; }
+      devs = await audioInputs();
+      paint(sh);
+    };
+  };
+  let refresh = null;
+  await openSheet(`<h2>Entrée</h2>
+    <p class="sub">D'où vient le son des prises.</p>
+    <div id="inputBody"></div>`,
+  sh => {
+    paint(sh);
+    // Une carte branchée ou débranchée pendant que le panneau est ouvert : la liste suit.
+    refresh = async () => { devs = await audioInputs(); paint(sh); };
+    navigator.mediaDevices?.addEventListener?.('devicechange', refresh);
+  });
+  if (refresh) navigator.mediaDevices.removeEventListener('devicechange', refresh);
+  if (REC.recorder && JSON.stringify(loadInput()) !== before) relaunchRecording();
+}
+
+// Changer d'entrée pendant une prise : au début, on la reprend de zéro avec la nouvelle ; une prise déjà longue continue.
+function relaunchRecording() {
+  if ((Date.now() - REC.start) / 1000 > 30) { toast('La prise continue. Nouvelle entrée à la prochaine prise.'); return; }
+  REC.restart = { target: REC.target, over: REC.overId, bpm: REC.bpm, metro: REC.metro };
+  stopRecording(true);
+}
+
+function syncInputUI() {
+  const b = $('#recInput');
+  if (!REC.input) return;
+  b.textContent = `${REC.input.label || 'Micro'}${REC.input.raw ? ' · instrument' : ''}`;
+}
+
+async function startRecording(targetIdeaId = null, overId = null, again = null) {
   if (REC.recorder) return;
+  const bail = () => { if (again) $('#recOverlay').hidden = true; };
   // Par-dessus une prise : on prépare ses pistes avant d'ouvrir le micro, pour partir sans attente.
   const overTake = overId ? takeById(overId) : null;
   let overItems = null;
@@ -2863,7 +3018,7 @@ async function startRecording(targetIdeaId = null, overId = null) {
       setStatus('Préparation des pistes…');
       overItems = await mixItems(overTake);
       setStatus('');
-    } catch (e) { setStatus(''); fail(e, 'Lecture impossible'); return; }
+    } catch (e) { setStatus(''); bail(); fail(e, 'Lecture impossible'); return; }
     targetIdeaId = overTake.idea_id;
   }
   const mime = pickMime();
@@ -2871,20 +3026,26 @@ async function startRecording(targetIdeaId = null, overId = null) {
     toast("Ce navigateur ne permet pas d'enregistrer (il faut une page en https).");
     return;
   }
-  let stream;
+  let stream, input;
   try {
-    // Pas de réduction de bruit ni d'annulation d'écho : on garde le son de la voix tel quel.
-    stream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: true },
-    });
+    ({ stream, input } = await openInput());
   } catch (e) {
+    bail();
     toast('Micro inaccessible : autorise le micro pour cette page.');
     return;
   }
-  const recorder = new MediaRecorder(stream, mime ? { mimeType: mime, audioBitsPerSecond: 96000 } : undefined);
-  Object.assign(REC, { recorder, stream, chunks: [], start: Date.now(), target: targetIdeaId, cancelled: false, levels: [] });
+  // En instrument, une carte à deux entrées passe par le moteur audio pour finir au centre (mono connu : rien à faire).
+  const route = input.raw && input.voies !== 1 ? await routeChannels(stream, input.canal) : null;
+  const recorder = new MediaRecorder(route ? route.stream : stream, mime ? { mimeType: mime, audioBitsPerSecond: 96000 } : undefined);
+  Object.assign(REC, { recorder, stream, input, chunks: [], start: Date.now(), target: targetIdeaId, overId, cancelled: false, levels: [] });
   recorder.ondataavailable = e => { if (e.data && e.data.size) REC.chunks.push(e.data); };
   recorder.onstop = onRecordingStopped;
+  // Carte débranchée en pleine prise : on s'arrête là et on garde ce qui est enregistré.
+  stream.getAudioTracks().forEach(t => t.addEventListener('ended', () => {
+    if (REC.stream !== stream || !REC.recorder) return;
+    toast('Entrée débranchée : prise arrêtée');
+    stopRecording(false);
+  }));
   if (overItems) {
     // Au démarrage réel de l'enregistreur, on lance les pistes et on retient l'écart entre les deux.
     const ctx = sharedCtx();
@@ -2900,7 +3061,8 @@ async function startRecording(targetIdeaId = null, overId = null) {
 
   try { REC.wake = await navigator.wakeLock?.request('screen'); } catch {}
 
-  try {
+  if (route) { REC.ctx = route.ctx; REC.analyser = route.analyser; }
+  else try {
     const AC = window.AudioContext || window.webkitAudioContext;
     REC.ctx = new AC();
     const src = REC.ctx.createMediaStreamSource(stream);
@@ -2912,12 +3074,14 @@ async function startRecording(targetIdeaId = null, overId = null) {
   const idea = ideaById(targetIdeaId);
   $('#recTarget').textContent = overTake ? `Par-dessus « ${overTake.title || ideaTitle(idea)} » · au casque` : idea ? `Suite de « ${ideaTitle(idea)} »` : '';
   document.querySelector('.rec-metro').hidden = !!overTake;
-  REC.bpm = (idea && idea.bpm) || savedBpm();
-  REC.metro = !overTake && savedMetro(); // par-dessus une prise, c'est elle qui donne le tempo
+  REC.bpm = (again && again.bpm) || (idea && idea.bpm) || savedBpm();
+  REC.metro = !overTake && (again ? !!again.metro : savedMetro()); // par-dessus une prise, c'est elle qui donne le tempo
   REC.metroUsed = REC.metro;
   syncMetroUI();
+  syncInputUI();
   if (REC.metro) startMetro(REC.bpm);
   $('#recOverlay').hidden = false;
+  if (again) toast(`Prise reprise avec « ${input.label || 'Micro'} »`);
   tickRecording();
 }
 
@@ -2971,13 +3135,16 @@ function onRecordingStopped() {
   stopMetro();
   if (REC.over) stopMix();
   REC.stream.getTracks().forEach(t => t.stop());
+  REC.recorder.stream.getTracks().forEach(t => t.stop());
   try { REC.ctx && REC.ctx.close(); } catch {}
   try { REC.wake && REC.wake.release(); } catch {}
-  $('#recOverlay').hidden = true;
+  if (!REC.restart) $('#recOverlay').hidden = true;
   const type = REC.recorder.mimeType || REC.chunks[0]?.type || 'audio/webm';
-  const result = { blob: new Blob(REC.chunks, { type }), duration: REC.duration, mime: type.split(';')[0], bpm: REC.metroUsed ? REC.bpm : null, over: REC.over || null };
-  const { cancelled, target } = REC;
+  const duration = REC.duration ?? (Date.now() - REC.start) / 1000;
+  const result = { blob: new Blob(REC.chunks, { type }), duration, mime: type.split(';')[0], bpm: REC.metroUsed ? REC.bpm : null, over: REC.over || null };
+  const { cancelled, target, restart } = REC;
   for (const k of Object.keys(REC)) delete REC[k];
+  if (restart) { startRecording(restart.target, restart.over, restart); return; }
   if (cancelled) return;
   if (result.duration < 0.6 || !result.blob.size) { toast('Prise trop courte, ignorée.'); return; }
   openSaveSheet(result, target);
@@ -4164,6 +4331,8 @@ async function openSettings() {
     <h2>Réglages</h2>
     <label class="label">Apparence</label>
     <div class="seg" id="themeSeg"><button data-theme-pick="dark">Sombre</button><button data-theme-pick="light">Clair</button></div>
+    <label class="label">Enregistrement</label>
+    <div class="choices"><button class="choice" id="inputOpen"><span class="ico"></span><span>Entrée<small>${esc(describeInput(loadInput()))}</small></span></button></div>
     <label class="label">Où sont gardés tes vocaux ?</label>
     <div class="seg"><button data-mode="local">Sur cet appareil</button><button data-mode="cloud">Synchronisé</button></div>
     <div id="localPane">
@@ -4193,6 +4362,7 @@ async function openSettings() {
     const showTheme = () => themeBtns.forEach(b => b.classList.toggle('on', b.dataset.themePick === currentTheme()));
     themeBtns.forEach(b => { b.onclick = () => { setTheme(b.dataset.themePick); showTheme(); }; });
     showTheme();
+    sh.querySelector('#inputOpen').onclick = () => { close(); openInputSheet(); };
     const seg = sh.querySelectorAll('[data-mode]');
     const show = () => {
       seg.forEach(b => b.classList.toggle('on', b.dataset.mode === mode));
@@ -4458,6 +4628,7 @@ function wireUi() {
   $('#metroPlus').onclick = () => setRecBpm(REC.bpm + 1);
   const recTap = makeTapper();
   $('#metroTap').onclick = () => { const t = recTap(); if (t) setRecBpm(t); };
+  $('#recInput').onclick = openInputSheet;
   $('#settingsBtn').onclick = openSettings;
   $('#importBtn').onclick = () => pickImport();
   $('#importInput').onchange = e => {

@@ -172,7 +172,19 @@ body.dragging, body.dragging .take { cursor: grabbing; }
 .overlay { position: fixed; inset: 0; z-index: 60; background: var(--bg); display: flex; align-items: center; padding: 24px; }
 .rec-panel { width: min(900px, 100%); margin: 0 auto; padding-bottom: 70px; }
 .rec-top { display: flex; justify-content: space-between; align-items: baseline; font: 14.5px var(--mono); color: var(--muted); }
-.rec-live { color: var(--red); }
+.rec-live { color: var(--red); flex: none; }
+/* L'entrée enregistrée, à côté de « rec ». Un nom trop long se coupe ; la marge du bas garde le soulignement visible.
+   La ligne passe au-dessus du compteur : ses chiffres géants débordent et prendraient le clic. */
+.rec-top { position: relative; z-index: 1; }
+.rec-input { min-width: 0; margin: 0 auto 0 14px; padding-bottom: 7px; margin-bottom: -7px; overflow: hidden; text-overflow: ellipsis; }
+.rec-top #recCancel { margin-left: 14px; }
+@media (max-width: 520px) {
+  .rec-top { flex-wrap: wrap; }
+  .rec-input { order: 1; flex-basis: 100%; margin: 10px 0 -7px; text-align: left; }
+}
+/* Le nom du micro par défaut passe à la ligne plutôt que d'écraser « Par défaut ». */
+.input-picks .choice > span:last-child { flex-wrap: wrap; row-gap: 2px; }
+.input-picks .choice small { flex: 0 1 auto; min-width: 0; }
 .rec-live::before { content: "● "; animation: blink 1.2s steps(2) infinite; }
 @keyframes blink { 50% { opacity: 0; } }
 .rec-time { font: 300 clamp(72px, 22vw, 168px)/1 var(--mono); letter-spacing: -.06em; margin: 18px 0 6px -.04em; }
