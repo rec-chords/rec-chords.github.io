@@ -826,7 +826,8 @@ const paras = text => esc(text).split(/\n{2,}/).map(x => `<p>${x.replace(/\n/g, 
    puis des modules à médiator (écouter, les concerts, le groupe, les photos), et le magnéto en bas pour écouter.
    L'essentiel tient au premier écran ; le reste vient en descendant.
    L'état de la page ouverte vit ici, hors du HTML : un nouveau rendu ne coupe ni la musique ni le lecteur. */
-const BP = { b: null, o: {}, audio: null, cur: null, idx: -1, deck: null, raf: 0, level: 0, after: false, wait: false, lock: false, swiped: 0, theme0: null, media: false, opener: null, inert: [], loaded: null };
+const BP = { b: null, o: {}, audio: null, cur: null, idx: -1, deck: null, raf: 0, level: 0, after: false, wait: false, lock: false, swiped: 0, theme0: null, media: false, opener: null, inert: [], loaded: null, back: 0, poster: null };
+const BP_DOC = Math.random().toString(36).slice(2); // marque les entrées d'historique posées par ce chargement de la page
 // La barre du haut de Rec. : la marque, et partager quand la page a une adresse.
 const bandTopHtml = share => `<header class="topbar bp-top"><a class="brand" href="${esc(location.pathname)}">Rec<i>.</i></a>${share ? '<button type="button" class="txt-btn" data-share>partager</button>' : ''}</header>`;
 const trackLen = t => Math.max(0, cutOut(t) - cutIn(t));
@@ -852,12 +853,41 @@ function bandMoment(page, forceLive) {
   const soon = wait === 0 ? 'Ce soir' : wait === 1 ? 'Demain' : wait > 1 ? `Dans ${wait} jours` : '';
   const day = x => new Date(x.d + 'T12:00:00');
   const label = next[0] ? `${day(next[0]).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })} · ${next[0].where}` : '';
-  return { next, past: past.slice(0, 6), wait, soon, live: wait === 0, day, label };
+  // Chaque date a sa page, à l'adresse ?groupe=nom&date=2026-11-30 (suivie de -2 quand le groupe joue deux fois le même jour).
+  // La première date du jour garde la clé nue : un lien déjà partagé ou un QR déjà imprimé tient quand un 2e concert s'ajoute ce jour-là.
+  const keys = new Map();
+  dates.forEach(x => { const i = dates.filter(y => y.d === x.d).indexOf(x); keys.set(x, i ? `${x.d}-${i + 1}` : x.d); });
+  // Une clé qui n'existe plus (un concert retiré ce jour-là) mène encore au concert du même jour.
+  const find = k => { k = String(k || ''); return dates.find(x => keys.get(x) === k) || (/^\d{4}-\d{2}-\d{2}/.test(k) ? dates.find(x => x.d === k.slice(0, 10)) : null) || null; };
+  return { next, past: past.slice(0, 6), wait, soon, live: wait === 0, day, label, now,
+    key: x => keys.get(x) || x.d, find, until: x => gap(x.d, now) };
 }
+const hourOf = x => (/^\d{2}:\d{2}$/.test(x.h || '') ? x.h.replace(/^0/, '').replace(':', ' h ').replace(/ 00$/, '') : '');
+const mapsUrl = x => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([x.where, x.addr].filter(Boolean).join(', '))}`;
+// Le lien de l'évènement (Instagram, Facebook…), nommé d'après son réseau.
+const eventOf = x => {
+  const url = urlIn(String((x && x.link) || '').trim());
+  if (!url) return null;
+  const host = url.replace(/^https?:\/\/(www\.)?/i, '').toLowerCase();
+  return { url, label: ((NETWORKS.find(([k]) => host.includes(k)) || [])[1] || "l'évènement").toLowerCase() };
+};
+// L'adresse de la page d'une date : celle du groupe, plus la date. Vide dans un aperçu sans page publique.
+const dateHref = k => (BP.o.link && k ? `${BP.o.link}&date=${encodeURIComponent(k)}` : '');
+// Ce qu'ouvre le QR code d'une date : la billetterie, sinon le lien de l'évènement, sinon la page de la date.
+// Un lien trop long pour un QR code (plus de 134 octets) cède la place au suivant ; la page de la date, courte, tient toujours.
+const dateQr = (x, k, old) => {
+  const tix = old ? '' : urlIn(String(x.url || '').trim()), ev = eventOf(x), self = old ? '' : dateHref(k); // un concert passé : seulement son lien (les photos, la vidéo)
+  for (const q of [tix && { url: tix, what: 'billetterie' }, ev && { url: ev.url, what: ev.label }, self && { url: self, what: 'cette date' }]) {
+    const svg = q && QR.svg(q.url);
+    if (svg) return { ...q, svg };
+  }
+  return null;
+};
 function bandState() {
   const b = BP.b || {}, o = BP.o, page = b.page && typeof b.page === 'object' ? b.page : {};
   const photos = o.photos || [];
-  return { m: bandMoment(page, o.live), photos, hero: photos[0] || (isCover(o.hero) ? o.hero : ''), tracks: o.tracks || [], link: o.link || '' };
+  const m = bandMoment(page, o.live);
+  return { m, photos, hero: photos[0] || (isCover(o.hero) ? o.hero : ''), tracks: o.tracks || [], link: o.link || '', date: o.date ? m.find(o.date) : null };
 }
 // Les liens du groupe : ceux qu'il a donnés, la vidéo (hors YouTube, jouée dans la page) et le contact.
 function bandLinks(b, page) {
@@ -889,20 +919,327 @@ function bandHeroHtml(b, st) {
         ${memo ? `<div class="band-memo">${linkify(memo)}</div>` : ''}
         ${links.length ? `<p class="band-acts">${links.map(l => `<a class="txt-btn" href="${esc(l.url)}"${l.mail ? '' : ' target="_blank" rel="noopener noreferrer"'}>${esc(l.label)}</a>`).join('')}</p>` : ''}
       </div>
-      ${nx ? `<p class="bp-next ${m.live ? 'live' : ''}">${m.live ? '<i class="bp-led" aria-hidden="true"></i>' : ''}<span>${m.live ? 'en concert' : 'prochain concert'}</span><button type="button" data-go="bp-concerts"><b>${esc(when)}</b> · ${esc(nx.where)}</button>${tix ? `<a class="txt-btn accent" href="${esc(tix)}" target="_blank" rel="noopener noreferrer">billets</a>` : ''}${m.live ? '<button type="button" class="txt-btn accent" data-glow title="Ton écran à la couleur de la soirée, à lever pendant le concert">allumer mon écran</button>' : ''}</p>` : ''}
+      ${nx ? `<p class="bp-next ${m.live ? 'live' : ''}">${m.live ? '<i class="bp-led" aria-hidden="true"></i>' : ''}<span>${m.live ? 'en concert' : 'prochain concert'}</span><a href="${esc(dateHref(m.key(nx)) || '#')}" data-date="${esc(m.key(nx))}"><b>${esc(when)}</b> · ${esc(nx.where)}</a>${tix ? `<a class="txt-btn accent" href="${esc(tix)}" target="_blank" rel="noopener noreferrer">billets</a>` : ''}${m.live ? '<button type="button" class="txt-btn accent" data-glow title="Ton écran à la couleur de la soirée, à lever pendant le concert">allumer mon écran</button>' : ''}</p>` : ''}
     </section>`;
 }
+// La page d'une date : la fiche du groupe en bref, puis le concert (quand, où, les infos, les billets) et son QR code.
+// Imprimée, elle devient la fiche du concert, à donner aux invités ou à poser au bar.
+function bandDateHtml(b, x, st) {
+  const m = st.m, k = m.key(x), until = m.until(x), old = until < 0, live = until === 0;
+  const who = [b.style, b.city].filter(Boolean).join(' · ');
+  const d = m.day(x);
+  const when = d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', ...(d.getFullYear() !== new Date().getFullYear() ? { year: 'numeric' } : {}) });
+  const hour = hourOf(x);
+  const soon = old ? 'déjà joué' : live ? 'ce soir' : until === 1 ? 'demain' : `dans ${until} jours`;
+  const tix = old ? '' : urlIn(String(x.url || '').trim()), ev = eventOf(x), qr = dateQr(x, k, old);
+  const out = ' target="_blank" rel="noopener noreferrer"';
+  const acts = [
+    tix ? `<a class="txt-btn accent" href="${esc(tix)}"${out}>billets</a>` : '',
+    old ? '' : `<button type="button" class="txt-btn" data-ics="${esc(k)}">agenda</button>`,
+    old ? '' : `<a class="txt-btn" href="${esc(mapsUrl(x))}"${out}>itinéraire</a>`,
+    ev ? `<a class="txt-btn" href="${esc(ev.url)}"${out}>${esc(ev.label)}</a>` : '',
+    live ? '<button type="button" class="txt-btn accent" data-glow title="Ton écran à la couleur de la soirée, à lever pendant le concert">allumer mon écran</button>' : '',
+    old ? '' : '<button type="button" class="txt-btn" data-poster title="L\'affiche du concert, avec la photo du groupe : à enregistrer, partager ou imprimer">affiche</button>',
+  ].join('');
+  return `<section class="hero bp-hero">
+      <div class="band open">
+        <div class="band-top">
+          ${isCover(b.cover) ? `<img class="band-cover" src="${b.cover}" alt="">` : ''}
+          <div class="band-text">
+            <h1 class="bp-name">${esc(b.name || '')}</h1>
+            ${who ? `<p class="band-tag">${esc(who)}</p>` : ''}
+            <a class="txt-btn bp-home" href="${esc(st.link || '#')}" data-home>toute la page du groupe</a>
+          </div>
+        </div>
+      </div>
+      <div class="bp-gig ${old ? 'old' : ''}">
+        <div class="bp-gig-main">
+          <h2 class="bp-gig-when"><time datetime="${x.d}">${esc(when.charAt(0).toUpperCase() + when.slice(1))}</time>${hour ? ` <span>· ${esc(hour)}</span>` : ''}</h2>
+          <p class="bp-gig-soon">${live ? '<i class="bp-led" aria-hidden="true"></i>' : ''}${esc(soon)}</p>
+          <p class="bp-gig-where"><b>${esc(x.where)}</b>${x.addr ? `<span>${esc(x.addr)}</span>` : ''}</p>
+          ${x.info ? `<p class="bp-gig-info">${esc(x.info)}</p>` : ''}
+          <p class="bp-acts">${acts}</p>
+        </div>
+        ${qr ? `<button type="button" class="bp-qr" data-qr aria-label="Agrandir le QR code">${qr.svg}<span>${esc(qr.what)}</span><small>${esc(linkLabel(qr.url))}</small></button>` : ''}
+      </div>
+    </section>`;
+}
+// Le QR code en grand, pour le montrer à quelqu'un qui le scanne avec son téléphone.
+function bandQrZoom(el) {
+  const st = bandState(), x = st.date;
+  const qr = x && dateQr(x, st.m.key(x), st.m.until(x) < 0);
+  if (!qr) return;
+  const z = document.createElement('div');
+  z.className = 'bp-zoom bp-qrzoom';
+  z.innerHTML = `<div>${qr.svg}<b>${esc(qr.what)}</b><span>${esc(linkLabel(qr.url))}</span></div>`;
+  el.append(z);
+}
+/* ----- L'affiche d'une date : une image à enregistrer, à partager ou à imprimer ----- */
+// La photo du groupe en noir et blanc contrasté, fondue dans le noir ; le nom en très grand ; la date en couleur ; le lieu, les infos et le QR code.
+// Dessinée au format A4 (1240 × 1754 px, 150 dpi), dans le navigateur : rien n'est envoyé nulle part.
+const imgOf = src => new Promise((ok, ko) => { const i = new Image(); i.onload = () => ok(i); i.onerror = ko; i.src = src; });
+async function posterDraw(b, x, st) {
+  const W = 1240, H = 1754, M = 92, R = W - M;
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  const BG = '#0b0b0d', TEXT = '#f4f4f6', MUTED = 'rgba(244, 244, 246, .66)', ACCENT = '#8f80ff';
+  const SANS = '"Hanken Grotesk", system-ui, sans-serif', MONO = '"DM Mono", ui-monospace, monospace';
+  if (document.fonts) await Promise.all([...['700', '600', '500', '400'].map(w => `${w} 60px "Hanken Grotesk"`), '500 30px "DM Mono"', '400 30px "DM Mono"'].map(f => document.fonts.load(f).catch(() => {})));
+  g.fillStyle = BG; g.fillRect(0, 0, W, H);
+  // La photo : la première du book, sinon l'image de la fiche si elle est assez grande. Sans photo, la trame de Rec.
+  let img = null;
+  for (const src of [st.hero, isCover(b.cover) ? b.cover : ''].filter(Boolean)) {
+    try { const i = await imgOf(src); if (src === st.hero || i.naturalWidth >= 480) { img = i; break; } } catch {}
+  }
+  const PH = Math.round(H * .66);
+  if (img) {
+    const k = Math.max(W / img.naturalWidth, PH / img.naturalHeight), dw = img.naturalWidth * k, dh = img.naturalHeight * k;
+    g.save(); g.beginPath(); g.rect(0, 0, W, PH); g.clip(); // une photo en hauteur ne déborde pas sous le texte
+    g.drawImage(img, (W - dw) / 2, (PH - dh) * .3, dw, dh); // recadrée un peu au-dessus du centre, là où sont les visages
+    g.restore();
+    // Noir et blanc contrasté, avec un grain léger : une photo de téléphone prend la tenue d'un tirage.
+    // Les niveaux s'étalent d'abord du noir au blanc (1 % de chaque côté), pour qu'une photo de concert sombre ne finisse pas en aplat noir.
+    const im = g.getImageData(0, 0, W, PH), p = im.data, hist = new Uint32Array(256);
+    for (let i = 0; i < p.length; i += 4) hist[p[i] = Math.round(.2126 * p[i] + .7152 * p[i + 1] + .0722 * p[i + 2])]++;
+    const at = share => { let n = 0, v = 0; for (; v < 255; v++) if ((n += hist[v]) >= share * W * PH) break; return v; };
+    const lo = Math.min(at(.01), 215), hi = Math.max(lo + 40, at(.99)); // une photo très claire garde son blanc
+    const curve = new Float32Array(256);
+    for (let v = 0; v < 256; v++) { const t = Math.min(1, Math.max(0, (v - lo) / (hi - lo))); curve[v] = 255 * (t * t * (3 - 2 * t) * .7 + t * .3); } // une courbe en S douce
+    for (let i = 0; i < p.length; i += 4) p[i] = p[i + 1] = p[i + 2] = curve[p[i]] * .92 + (Math.random() - .5) * 18;
+    g.putImageData(im, 0, 0);
+    const fade = g.createLinearGradient(0, PH * .34, 0, PH);
+    fade.addColorStop(0, 'rgba(11, 11, 13, 0)'); fade.addColorStop(.7, 'rgba(11, 11, 13, .86)'); fade.addColorStop(1, BG);
+    g.fillStyle = fade; g.fillRect(0, 0, W, PH);
+    const veil = g.createLinearGradient(0, 0, 0, 300);
+    veil.addColorStop(0, 'rgba(11, 11, 13, .62)'); veil.addColorStop(1, 'rgba(11, 11, 13, 0)');
+    g.fillStyle = veil; g.fillRect(0, 0, W, 300);
+  } else {
+    g.strokeStyle = 'rgba(244, 244, 246, .05)'; g.lineWidth = 2;
+    for (let s = -H; s < W; s += 16) { g.beginPath(); g.moveTo(s, 0); g.lineTo(s + H, H); g.moveTo(s + H, 0); g.lineTo(s, H); g.stroke(); }
+  }
+  const ls = px => { if ('letterSpacing' in g) g.letterSpacing = `${px}px`; };
+  // Retour à la ligne aux espaces ; un mot trop long se coupe ; au-delà de max lignes, des points de suspension.
+  // maxW : une largeur, ou la largeur de chaque ligne (les lignes qui longent le disque).
+  const wrap = (text, maxW, max) => {
+    const lim = i => (typeof maxW === 'function' ? maxW(i) : maxW);
+    const out = [];
+    let cur = '';
+    for (let w of String(text || '').split(/\s+/).filter(Boolean)) {
+      while (w.length > 1 && g.measureText(w).width > lim(out.length + (cur ? 1 : 0))) {
+        if (cur) { out.push(cur); cur = ''; }
+        let n = w.length - 1;
+        while (n > 1 && g.measureText(w.slice(0, n)).width > lim(out.length)) n--;
+        out.push(w.slice(0, n)); w = w.slice(n);
+      }
+      const t = cur ? `${cur} ${w}` : w;
+      if (!cur || g.measureText(t).width <= lim(out.length)) cur = t; else { out.push(cur); cur = w; }
+    }
+    if (cur) out.push(cur);
+    if (out.length > max) {
+      out.length = max;
+      let l = out[max - 1];
+      while (l && g.measureText(`${l}…`).width > lim(max - 1)) l = l.slice(0, -1).trimEnd();
+      out[max - 1] = `${l}…`;
+    }
+    return out;
+  };
+  g.textBaseline = 'top';
+  // En haut : le style et la ville.
+  const who = [b.style, b.city].filter(Boolean).join(' · ').toUpperCase();
+  if (who) { g.font = `500 25px ${MONO}`; ls(5); g.fillStyle = 'rgba(244, 244, 246, .86)'; g.fillText(wrap(who, R - M, 1)[0], M, M); }
+  // En bas à droite, un disque coupé par les bords de la feuille, comme sorti de sa pochette. Son étiquette violette porte le QR code :
+  // des modules sombres sur le violet, que les téléphones lisent comme un QR code ordinaire (clair autour, sombre dessus).
+  const k = st.m.key(x), qr = dateQr(x, k, false);
+  const TAU = Math.PI * 2, RL = 180, RD = 330, CX = W - RL - 40, CY = H - RL - 40;
+  // Le bord gauche du disque entre deux hauteurs, moins un écart : jusqu'où une ligne de texte peut aller.
+  const edge = (y0, y1) => { const dy = Math.abs(Math.min(Math.max(CY, y0), y1) - CY); return dy >= RD ? R : Math.min(R, CX - Math.sqrt(RD * RD - dy * dy) - 44); };
+  // En bas à gauche : quand, où, les infos, et où mène le QR code.
+  // L'année seulement pour une date lointaine (ou passée) : « mardi 23 février » suffit en décembre.
+  const d = st.m.day(x), far = d.getFullYear() !== new Date().getFullYear() && (st.m.until(x) > 300 || st.m.until(x) < 0);
+  const when = d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', ...(far ? { year: 'numeric' } : {}) });
+  const specs = [];
+  const add = (font, color, text, max, lh, before = 0, spacing = 0) => { if (text) specs.push({ font, color, spacing, lh, before, text, max }); };
+  add(`700 66px ${SANS}`, ACCENT, when.charAt(0).toUpperCase() + when.slice(1), 2, 72, 0, -1.5);
+  add(`500 66px ${SANS}`, TEXT, hourOf(x), 1, 72, 0, -1.5);
+  add(`600 44px ${SANS}`, TEXT, x.where, 2, 52, 38, -.5);
+  add(`400 31px ${SANS}`, MUTED, x.addr, 2, 41, 8);
+  add(`400 31px ${SANS}`, MUTED, x.info, 3, 41, 20);
+  // Où mène le QR code, pour qui ne le scanne pas : en entier ou pas du tout (l'étiquette dit déjà « billetterie »).
+  if (qr) { g.font = `400 24px ${MONO}`; ls(0); const room = edge(CY, CY) - M, link = linkLabel(qr.url); add(`400 24px ${MONO}`, MUTED, [`${qr.what} · ${link}`, link].find(t => g.measureText(t).width <= room), 1, 34, 26); }
+  // Les lignes longent le disque : plus longues en haut, là où il s'arrondit. Si tout ne tient pas sous le disque, la colonne remonte, à la largeur la plus étroite.
+  const lay = (top, flat) => {
+    let y = top;
+    const rows = specs.map(s => { y += s.before; const y0 = y; g.font = s.font; ls(s.spacing); const lines = wrap(s.text, flat ? edge(CY, CY) - M : i => edge(y0 + i * s.lh, y0 + (i + 1) * s.lh) - M, s.max); y += lines.length * s.lh; return { ...s, y0, lines }; });
+    return { rows, end: y };
+  };
+  let rule = CY - RD - 34, col = lay(rule + 54);
+  if (col.end > H - M) { const h = lay(0, true).end; rule = H - M - h - 54; col = lay(rule + 54, true); }
+  for (const r of col.rows) { g.font = r.font; ls(r.spacing); g.fillStyle = r.color; r.lines.forEach((l, i) => g.fillText(l, M, r.y0 + i * r.lh)); }
+  // Le disque : des sillons d'une clarté irrégulière, deux plages lisses entre les morceaux, deux reflets opposés.
+  g.save();
+  g.beginPath(); g.arc(CX, CY, RD, 0, TAU);
+  const disc = g.createRadialGradient(CX, CY, RL, CX, CY, RD);
+  disc.addColorStop(0, '#17171b'); disc.addColorStop(1, '#0f0f12');
+  g.fillStyle = disc; g.fill(); g.clip();
+  g.lineWidth = 1;
+  for (let r = RL + 22; r < RD - 6; r += 2.5) {
+    const f = (r - RL - 22) / (RD - RL - 28), smooth = Math.abs(f - .36) < .014 || Math.abs(f - .7) < .014;
+    g.strokeStyle = `rgba(255, 255, 255, ${smooth ? .01 : (.026 + .04 * (Math.sin(r * 91.7) + 1) / 2).toFixed(3)})`;
+    g.beginPath(); g.arc(CX, CY, r, 0, TAU); g.stroke();
+  }
+  if (g.createConicGradient) {
+    const sheen = g.createConicGradient(-Math.PI * .8, CX, CY);
+    [[0, 0], [.07, .15], [.14, 0], [.5, 0], [.57, .09], [.64, 0], [1, 0]].forEach(([p, a]) => sheen.addColorStop(p, `rgba(255, 255, 255, ${a})`));
+    g.fillStyle = sheen; g.beginPath(); g.arc(CX, CY, RD, 0, TAU); g.arc(CX, CY, RL + 14, 0, TAU, true); g.fill();
+  }
+  g.restore();
+  g.strokeStyle = 'rgba(255, 255, 255, .12)'; g.lineWidth = 2; g.beginPath(); g.arc(CX, CY, RD - 1, 0, TAU); g.stroke();
+  // L'étiquette, et le QR code dessus avec trois modules de marge, entier dans le cercle.
+  const lab = g.createRadialGradient(CX - RL * .35, CY - RL * .35, 0, CX, CY, RL);
+  lab.addColorStop(0, '#b3a8ff'); lab.addColorStop(1, '#9c8eff'); // un violet assez clair pour que l'encre ressorte, même imprimée en noir et blanc
+  g.fillStyle = lab; g.beginPath(); g.arc(CX, CY, RL, 0, TAU); g.fill();
+  g.strokeStyle = 'rgba(0, 0, 0, .3)'; g.lineWidth = 3; g.beginPath(); g.arc(CX, CY, RL - 1.5, 0, TAU); g.stroke();
+  const INK = '#120d27', hq = qr ? (RL - 4) / Math.SQRT2 : 0;
+  if (qr) {
+    const m = QR.matrix(qr.url), n = m.length, cell = 2 * hq / (n + 6), x0 = CX - n * cell / 2, y0 = CY - n * cell / 2;
+    g.fillStyle = INK;
+    m.forEach((row, r) => row.forEach((on, c) => { if (on) { const a = Math.round(x0 + c * cell), e = Math.round(y0 + r * cell); g.fillRect(a, e, Math.round(x0 + (c + 1) * cell) - a, Math.round(y0 + (r + 1) * cell) - e); } }));
+  } else { g.fillStyle = BG; g.beginPath(); g.arc(CX, CY, 9, 0, TAU); g.fill(); } // sans QR code, le trou du disque
+  // Sur le pourtour de l'étiquette, comme sur un vrai disque : le nom du groupe en haut, ce que donne le QR code en bas.
+  // Le texte reste hors du carré du QR code et de sa marge ; trop long, il n'est pas écrit.
+  const ri = RL - 19, rc = ri + 6.5, span = 2 * Math.acos(Math.min(1, hq / ri));
+  const arcText = (text, up) => {
+    text = String(text || '').trim().toUpperCase();
+    // L'arabe, l'hébreu et les écritures qui lient leurs lettres ne se dessinent pas lettre à lettre : le pourtour reste vide.
+    if (!text || /[\p{Script=Arabic}\p{Script=Hebrew}\p{Script=Syriac}\p{Script=Thaana}\p{Script=Nko}\p{Script=Devanagari}\p{Script=Bengali}\p{Script=Gurmukhi}\p{Script=Gujarati}\p{Script=Oriya}\p{Script=Tamil}\p{Script=Telugu}\p{Script=Kannada}\p{Script=Malayalam}\p{Script=Sinhala}\p{Script=Thai}\p{Script=Lao}\p{Script=Tibetan}\p{Script=Myanmar}\p{Script=Khmer}]/u.test(text)) return;
+    // Par caractères visibles, pour qu'un emoji composé ou une lettre accentuée décomposée reste d'un seul tenant.
+    const chars = typeof Intl !== 'undefined' && Intl.Segmenter ? [...new Intl.Segmenter('fr', { granularity: 'grapheme' }).segment(text.normalize('NFC'))].map(x => x.segment) : [...text.normalize('NFC')];
+    let fs = 17, sp = 0, adv = [], w = 0;
+    const fit = () => { g.font = `500 ${fs}px ${MONO}`; ls(0); sp = fs * .2; adv = chars.map(ch => g.measureText(ch).width + sp); w = adv.reduce((s, v) => s + v, 0) - sp; };
+    fit();
+    while (w / rc > span && fs > 12) { fs--; fit(); }
+    if (w / rc > span) return;
+    g.save(); g.translate(CX, CY); g.fillStyle = INK; g.textAlign = 'center'; g.textBaseline = 'middle';
+    let a = up ? -Math.PI / 2 - w / rc / 2 : Math.PI / 2 + w / rc / 2;
+    chars.forEach((ch, i) => {
+      const mid = (adv[i] - sp) / 2 / rc;
+      g.save(); g.rotate(up ? a + mid + Math.PI / 2 : a - mid - Math.PI / 2); g.fillText(ch, 0, up ? -rc : rc); g.restore();
+      a += (up ? 1 : -1) * adv[i] / rc;
+    });
+    g.restore();
+  };
+  arcText(b.name, true);
+  if (qr) arcText(qr.what, false);
+  g.textAlign = 'left'; g.textBaseline = 'top';
+  // Un filet, puis le nom du groupe, le plus grand possible sur trois lignes au plus.
+  g.fillStyle = 'rgba(244, 244, 246, .24)'; g.fillRect(M, rule, R - M, 2);
+  const name = String(b.name || '').trim();
+  let fs = 236, nl = [];
+  const sized = s => { g.font = `700 ${s}px ${SANS}`; ls(-s * .04); nl = wrap(name, R - M, 9); return nl.length <= 3 && name.split(/\s+/).every(w => g.measureText(w).width <= R - M); };
+  while (fs > 80 && !sized(fs)) fs -= 6;
+  if (fs <= 80) { fs = 80; sized(fs); nl = wrap(name, R - M, 3); }
+  g.textBaseline = 'alphabetic'; g.fillStyle = TEXT;
+  // Les lignes du nom, serrées (0,93 em), mais jamais au point qu'un jambage (ç, g, p) touche l'accent d'une capitale en dessous (É).
+  const base = [];
+  nl.forEach((l, i) => { base[i] = rule - 48; });
+  for (let i = nl.length - 2; i >= 0; i--) base[i] = base[i + 1] - Math.max(fs * .93, g.measureText(nl[i]).actualBoundingBoxDescent + g.measureText(nl[i + 1]).actualBoundingBoxAscent + fs * .05);
+  nl.forEach((l, i) => g.fillText(l, M - fs * .02, base[i]));
+  // Sans photo, la date en très grand occupe le haut, comme le jour d'une ligne de concert (30.11).
+  // Elle prend la place que le nom lui laisse : plus petite au-dessus d'un long nom, et pas du tout s'il ne reste presque rien.
+  if (!img) {
+    const nameTop = nl.length ? base[0] - g.measureText(nl[0]).actualBoundingBoxAscent : rule - 48;
+    const day = `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}`, y0 = M + 96;
+    let s = 420;
+    const size = v => { s = v; g.font = `500 ${s}px ${MONO}`; ls(-s * .05); return g.measureText(day); };
+    let dm = size(s);
+    if (dm.width > R - M) dm = size(Math.floor(s * (R - M) / dm.width));
+    const room = nameTop - 64 - y0;
+    if (dm.actualBoundingBoxAscent > room) dm = size(Math.floor(s * room / dm.actualBoundingBoxAscent));
+    if (s >= 150) { g.fillStyle = ACCENT; g.fillText(day, M - s * .03, y0 + dm.actualBoundingBoxAscent); }
+  }
+  return c;
+}
+// L'affiche, prête : à l'écran en grand, avec enregistrer (ou partager, sur téléphone), imprimer, fermer.
+const IOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const IN_APP = /Instagram|FBAN|FBAV|FB_IAB|TikTok|Line\//i; // les navigateurs intégrés aux réseaux : ni téléchargement, ni impression
+const posterFile = p => new File([p.blob], p.file, { type: p.blob.type });
+async function bandPoster(el, from) {
+  if (!BP.b || !bandState().date || el.querySelector('.bp-poster')) return;
+  const z = document.createElement('div');
+  z.className = 'bp-poster';
+  z.setAttribute('role', 'dialog'); z.setAttribute('aria-modal', 'true'); z.setAttribute('aria-label', "L'affiche du concert"); z.tabIndex = -1;
+  z.innerHTML = '<p class="bp-poster-wait" aria-live="polite">L\'affiche se prépare…</p>';
+  // Tant qu'elle est ouverte, la page derrière ne prend ni le clavier ni le lecteur d'écran.
+  BP.posterInert = [...el.children].filter(c => !c.inert);
+  BP.posterInert.forEach(c => { c.inert = true; });
+  BP.posterFrom = from || null;
+  el.append(z);
+  el.classList.add('postering');
+  z.focus();
+  // Sur l'adresse publique, la photo arrive après la page : on l'attend un peu plutôt que de faire l'affiche sans elle.
+  let late = '';
+  try { if (!bandState().hero && BP.heroP) late = await Promise.race([BP.heroP, new Promise(r => setTimeout(r, 4000, ''))]); } catch {}
+  if (!z.isConnected) return;
+  const st = bandState(), x = st.date, b = BP.b;
+  if (!x || !b) return posterClose(el);
+  let blob = null;
+  try { const cv = await posterDraw(b, x, { ...st, hero: st.hero || (isCover(late) ? late : '') }); blob = await new Promise(ok => cv.toBlob(ok, 'image/jpeg', .92)); } catch (e) { console.error(e); }
+  if (!z.isConnected) return;
+  if (!blob) { posterClose(el); toast("L'affiche n'a pas pu être préparée"); return; }
+  const url = URL.createObjectURL(blob), file = `${slugify(b.name) || 'concert'}-${st.m.key(x)}-affiche.jpg`;
+  BP.poster = { url, blob, file, title: `${b.name} · ${st.m.day(x).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}` };
+  let share = false;
+  try { share = !!navigator.canShare && navigator.canShare({ files: [posterFile(BP.poster)] }); } catch {}
+  const touch = matchMedia('(pointer: coarse)').matches, btn = (attr, label, cls = '') => `<button type="button" class="txt-btn ${cls}" ${attr}>${label}</button>`;
+  // iPhone : la feuille de partage a « Enregistrer l'image » ; Android et ordinateur : un fichier, et le partage à côté sur téléphone.
+  // Dans Instagram ou Facebook, rien ne se télécharge : le partage s'il existe, sinon l'appui long.
+  const acts = IN_APP.test(navigator.userAgent)
+    ? `${share ? btn('data-poster-share', 'partager', 'accent') : ''}${btn('data-poster-close', 'fermer')}</p><p class="bp-poster-hint">Pour l'enregistrer : appui long sur l'image, ou ouvre la page dans ton navigateur.`
+    : `${btn('data-poster-save', IOS && share ? 'enregistrer ou partager' : "enregistrer l'image", 'accent')}${share && touch && !IOS ? btn('data-poster-share', 'partager') : ''}${btn('data-poster-print', 'imprimer')}${btn('data-poster-close', 'fermer')}`;
+  z.innerHTML = `<img src="${url}" alt="Affiche du concert de ${esc(b.name || '')}"><p class="bp-poster-acts">${acts}</p>`;
+  const first = z.querySelector('button');
+  if (first) first.focus({ preventScroll: true });
+}
+function posterClose(el) {
+  const z = el.querySelector('.bp-poster');
+  if (z) z.remove();
+  el.classList.remove('postering');
+  (BP.posterInert || []).forEach(c => { c.inert = false; });
+  BP.posterInert = null;
+  if (z && BP.posterFrom && BP.posterFrom.isConnected) BP.posterFrom.focus({ preventScroll: true });
+  BP.posterFrom = null;
+  if (BP.poster) { URL.revokeObjectURL(BP.poster.url); BP.poster = null; }
+}
+// Enregistrer : un fichier téléchargé, sauf sur iPhone où la feuille de partage l'enregistre dans Photos. Partager : la feuille de partage.
+async function posterSave(how) {
+  const p = BP.poster;
+  if (!p || BP.sharing) return;
+  const f = posterFile(p);
+  let share = false;
+  try { share = !!navigator.canShare && navigator.canShare({ files: [f] }); } catch {}
+  if (share && (how === 'share' || IOS)) {
+    BP.sharing = true; // un deuxième toucher pendant que la feuille s'ouvre ne lance pas aussi un téléchargement
+    try { await navigator.share({ files: [f], title: p.title }); return; }
+    catch (e) { if (e && (e.name === 'AbortError' || e.name === 'InvalidStateError')) return; }
+    finally { BP.sharing = false; }
+  }
+  if (how === 'share' || IN_APP.test(navigator.userAgent)) return toast("Le partage n'a pas marché : appui long sur l'image pour l'enregistrer");
+  const a = document.createElement('a');
+  a.href = p.url; a.download = p.file;
+  document.body.append(a); a.click(); a.remove();
+}
 // Le reste, en modules comme les idées de l'accueil : écouter, les concerts, le groupe, les photos, la vidéo.
+// Sur la page d'une date : écouter, puis les autres dates.
 function bandRestHtml(b, st) {
   const page = b.page && typeof b.page === 'object' ? b.page : {};
-  const m = st.m;
+  const m = st.m, at = st.date;
   const lineup = page.lineup === false ? [] : (Array.isArray(b.lineup) ? b.lineup : []).filter(x => x && (x.name || x.inst));
   const bio = String(page.bio || '').trim();
   const yt = youtubeId(page.video);
   const mail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(page.booking || '') ? page.booking : '';
   const year = new Date().getFullYear();
-  const hour = x => (/^\d{2}:\d{2}$/.test(x.h || '') ? x.h.replace(/^0/, '').replace(':', ' h ').replace(/ 00$/, '') : '');
-  const mod = (id, title, sub, body) => `<section class="block bp-mod" id="bp-${id}">
+  const mod =(id, title, sub, body) => `<section class="block bp-mod" id="bp-${id}">
       <div class="block-head"><span class="grip" aria-hidden="true">${PICK}</span><h2 class="block-title">${title}</h2></div>
       ${sub ? `<p class="block-sub"><span>${esc(sub)}</span></p>` : ''}${body}</section>`;
   const parts = [];
@@ -917,29 +1254,33 @@ function bandRestHtml(b, st) {
         ${ok ? `<div class="wave" data-seek="${n}">${waveSvg(t, 'w-base')}${waveSvg(t, 'w-fill')}</div>` : ''}
       </div></li>`; }).join('')}</ol>`));
   // Les concerts : une ligne par date, comme une prise. La date à la place du numéro, la salle en titre, le jour et l'heure à droite.
-  const dateLi = (x, cls, n) => {
-    const d = m.day(x), u = urlIn(String(x.url || '').trim());
+  // La salle ouvre la page de la date (les infos, le QR code), comme « infos ».
+  const dateLi = (x, cls) => {
+    const d = m.day(x), u = urlIn(String(x.url || '').trim()), k = m.key(x), to = `href="${esc(dateHref(k) || '#')}" data-date="${esc(k)}"`;
     // L'heure à droite, comme la durée d'une prise ; la date en toutes lettres en dessous, l'année seulement si ce n'est pas celle-ci.
     const other = d.getFullYear() !== year;
-    const meta = cls === 'old' ? (other ? String(d.getFullYear()) : '') : hour(x);
+    const meta = cls === 'old' ? (other ? String(d.getFullYear()) : '') : hourOf(x);
     const day = d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', ...(other ? { year: 'numeric' } : {}) });
     const soon = cls === 'old' ? '' : [day, cls === 'next' ? (m.live ? 'ce soir' : m.soon.toLowerCase()) : ''].filter(Boolean).join(' · ');
     return `<li class="take bp-date ${cls}"><time class="bp-day" datetime="${x.d}">${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}</time>
       <div class="take-main">
-        <div class="take-line"><span class="take-title">${esc(x.where)}</span>${meta ? `<span class="take-meta">${esc(meta)}</span>` : ''}</div>
+        <div class="take-line"><a class="take-title bp-dlink" ${to}>${esc(x.where)}</a>${meta ? `<span class="take-meta">${esc(meta)}</span>` : ''}</div>
         ${soon ? `<div class="take-note">${esc(soon)}</div>` : ''}
-        ${cls === 'old' ? '' : `<p class="bp-acts">${u ? `<a class="txt-btn accent" href="${esc(u)}" target="_blank" rel="noopener noreferrer">billets</a>` : ''}<button type="button" class="txt-btn" data-ics="${n}">agenda</button><a class="txt-btn" href="https://www.google.com/maps/search/?api=1&amp;query=${encodeURIComponent(x.where)}" target="_blank" rel="noopener noreferrer">itinéraire</a></p>`}
+        ${cls === 'old' ? '' : `<p class="bp-acts">${u ? `<a class="txt-btn accent" href="${esc(u)}" target="_blank" rel="noopener noreferrer">billets</a>` : ''}<a class="txt-btn" ${to}>infos</a></p>`}
       </div></li>`;
   };
-  if (m.next.length || m.past.length) parts.push(mod('concerts', 'Concerts', m.next.length ? '' : 'pas de date annoncée pour le moment',
-    `<ol class="takes">${m.next.map((x, n) => dateLi(x, n ? '' : 'next', n)).join('')}${m.past.length ? `<li class="bp-sep">déjà joué</li>${m.past.map(x => dateLi(x, 'old', -1)).join('')}` : ''}</ol>`));
+  if (at) { // la page d'une date : les autres dates à venir, sans les anciennes
+    const others = m.next.filter(x => x !== at);
+    if (others.length) parts.push(mod('concerts', 'Les autres dates', '', `<ol class="takes">${others.map(x => dateLi(x, x === m.next[0] ? 'next' : '')).join('')}</ol>`));
+  } else if (m.next.length || m.past.length) parts.push(mod('concerts', 'Concerts', m.next.length ? '' : 'pas de date annoncée pour le moment',
+    `<ol class="takes">${m.next.map((x, n) => dateLi(x, n ? '' : 'next')).join('')}${m.past.length ? `<li class="bp-sep">déjà joué</li>${m.past.map(x => dateLi(x, 'old')).join('')}` : ''}</ol>`));
   // Le groupe : la biographie, puis le line-up comme sur la fiche du groupe dans l'appli.
   const lineupHtml = lineup.length ? `<ul class="band-lineup">${lineup.map(x => `<li><b>${esc(x.name || '?')}</b><span>${esc(x.inst || '')}</span></li>`).join('')}</ul>` : '';
-  if (bio || lineupHtml) parts.push(mod('groupe', 'Le groupe', '', `${bio ? `<div class="bp-bio">${paras(bio)}</div>` : ''}${lineupHtml}`));
+  if (!at && (bio || lineupHtml)) parts.push(mod('groupe', 'Le groupe', '', `${bio ? `<div class="bp-bio">${paras(bio)}</div>` : ''}${lineupHtml}`));
   // Les photos : la première en grand, les autres par deux. Un toucher les ouvre en grand.
   const pics = st.photos.length ? st.photos : st.hero ? [st.hero] : [];
-  if (pics.length) parts.push(mod('photos', 'Photos', '', `<div class="bp-gal">${pics.map(src => `<button type="button" class="bp-shot" data-ph aria-label="Agrandir la photo"><img src="${src}" alt="" loading="lazy"></button>`).join('')}</div>`));
-  if (yt) parts.push(mod('video', 'En vidéo', '', `<div class="bp-frame"><iframe src="https://www.youtube-nocookie.com/embed/${yt}" title="Vidéo du groupe" loading="lazy" allow="accelerometer; encrypted-media; gyroscope; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe></div>`));
+  if (!at && pics.length) parts.push(mod('photos', 'Photos', '', `<div class="bp-gal">${pics.map(src => `<button type="button" class="bp-shot" data-ph aria-label="Agrandir la photo"><img src="${src}" alt="" loading="lazy"></button>`).join('')}</div>`));
+  if (!at && yt) parts.push(mod('video', 'En vidéo', '', `<div class="bp-frame"><iframe src="https://www.youtube-nocookie.com/embed/${yt}" title="Vidéo du groupe" loading="lazy" allow="accelerometer; encrypted-media; gyroscope; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe></div>`));
   return `<div class="board bp-board">${parts.join('\n')}</div>
     <footer class="bp-foot">
       ${mail ? `<span>contact <a class="txt-btn" href="mailto:${esc(mail)}">${esc(mail)}</a></span>` : ''}
@@ -1104,8 +1445,8 @@ function bandGlow(on) {
   el.append(g);
 }
 // Une date dans l'agenda du téléphone : un fichier .ics, ou Google Agenda là où les fichiers ne s'ouvrent pas.
-function bandAgenda(n) {
-  const b = BP.b, x = b && bandState().m.next[n];
+function bandAgenda(k) {
+  const b = BP.b, m = b && bandState().m, x = m && m.find(k);
   if (!x) return;
   const pad = v => String(v).padStart(2, '0');
   const ymd = d => `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`;
@@ -1114,17 +1455,18 @@ function bandAgenda(n) {
   const [h, mi] = timed ? x.h.split(':').map(Number) : [0, 0];
   const start = new Date(Y, M - 1, D, h, mi), end = timed ? new Date(Y, M - 1, D, h + 2, mi) : new Date(Y, M - 1, D + 1);
   const stamp = d => `${ymd(d)}T${pad(d.getHours())}${pad(d.getMinutes())}00`;
-  const title = `${b.name} en concert`, link = BP.o.link || '';
+  const title = `${b.name} en concert`, link = dateHref(k) || BP.o.link || '';
+  const place = [x.where, x.addr].filter(Boolean).join(', '), about = [x.info, link].filter(Boolean).join('\n');
   if (/Instagram|FBAN|FBAV|FB_IAB|TikTok|Line\//i.test(navigator.userAgent)) {
-    window.open(`https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(title)}&dates=${timed ? `${stamp(start)}/${stamp(end)}` : `${ymd(start)}/${ymd(end)}`}&location=${encodeURIComponent(x.where)}&details=${encodeURIComponent(link)}`, '_blank', 'noopener');
+    window.open(`https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(title)}&dates=${timed ? `${stamp(start)}/${stamp(end)}` : `${ymd(start)}/${ymd(end)}`}&location=${encodeURIComponent(place)}&details=${encodeURIComponent(about)}`, '_blank', 'noopener');
     return;
   }
   const txt = v => String(v).replace(/\\/g, '\\\\').replace(/([,;])/g, '\\$1').replace(/\r?\n/g, '\\n');
   const now = new Date();
-  const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Rec.//Book//FR', 'BEGIN:VEVENT', `UID:${x.d}-${slugify(b.name)}@rec`,
+  const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Rec.//Book//FR', 'BEGIN:VEVENT', `UID:${k}-${slugify(b.name)}@rec`,
     `DTSTAMP:${now.getUTCFullYear()}${pad(now.getUTCMonth() + 1)}${pad(now.getUTCDate())}T${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}${pad(now.getUTCSeconds())}Z`,
     timed ? `DTSTART:${stamp(start)}` : `DTSTART;VALUE=DATE:${ymd(start)}`, timed ? `DTEND:${stamp(end)}` : `DTEND;VALUE=DATE:${ymd(end)}`,
-    `SUMMARY:${txt(title)}`, `LOCATION:${txt(x.where)}`, link ? `URL:${link}` : '', link ? `DESCRIPTION:${txt(link)}` : '',
+    `SUMMARY:${txt(title)}`, `LOCATION:${txt(place)}`, link ? `URL:${link}` : '', about ? `DESCRIPTION:${txt(about)}` : '',
     'BEGIN:VALARM', 'TRIGGER:-P1D', 'ACTION:DISPLAY', `DESCRIPTION:${txt(`${b.name} joue demain`)}`, 'END:VALARM', 'END:VEVENT', 'END:VCALENDAR'].filter(Boolean).join('\r\n');
   const url = URL.createObjectURL(new Blob([ics], { type: 'text/calendar;charset=utf-8' }));
   const dl = document.createElement('a');
@@ -1133,9 +1475,13 @@ function bandAgenda(n) {
   setTimeout(() => URL.revokeObjectURL(url), 4000);
 }
 async function bandShare(btn) {
-  const link = BP.o.link, title = (BP.b && BP.b.name) || 'Rec.';
+  // Sur la page d'une date, c'est elle qu'on partage, avec une phrase toute faite pour les messages.
+  const st = bandState(), x = st.date, name = (BP.b && BP.b.name) || 'Rec.';
+  const link = x ? dateHref(st.m.key(x)) : BP.o.link;
   if (!link) return;
-  if (navigator.share) { try { await navigator.share({ title, url: link }); } catch {} return; }
+  const when = x ? `${st.m.day(x).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}${hourOf(x) ? ` à ${hourOf(x)}` : ''}` : '';
+  const title = x ? `${name} · ${when}` : name, text = x ? `${name} en concert ${when}, ${x.where}` : '';
+  if (navigator.share) { try { await navigator.share({ title, ...(text ? { text } : {}), url: link }); } catch {} return; }
   const was = btn.dataset.was || (btn.dataset.was = btn.textContent);
   try { await navigator.clipboard.writeText(link); btn.textContent = 'lien copié'; } catch { btn.textContent = link.replace(/^https?:\/\//, ''); }
   setTimeout(() => { if (btn.isConnected) btn.textContent = was; }, 2600);
@@ -1171,12 +1517,27 @@ function bandTry(btn) {
     if (el.classList.contains('anim')) { el.classList.remove('again'); const hero = el.querySelector('.bp-hero'); if (hero) hero.replaceWith(hero.cloneNode(true)); } // la façade rejoue son entrée
   });
 }
+// Ouvrir la page d'une date (k), ou revenir à celle du groupe (k vide). La musique continue.
+// Sur l'adresse publique, l'adresse suit et le bouton retour du téléphone ramène où l'on était ; dans l'aperçu de l'appli, on ne touche pas à l'adresse.
+function bandGoto(k, push = true) {
+  const el = $('#bandpage');
+  if (!el || el.hidden || !BP.b) return;
+  const pub = !BP.o.preview && !!BP.o.link, h = history.state;
+  const from = bandState().date ? null : el.scrollTop; // depuis la page du groupe : on retiendra où l'on était
+  // Revenir, plutôt qu'empiler, quand la page du groupe est juste derrière… dans ce même chargement (sinon la page se rechargerait et la musique s'arrêterait).
+  if (!k && push && pub && h && h.bpFrom === 'band' && h.bpDoc === BP_DOC) return history.back();
+  // Quitter la page du groupe dont l'adresse porte encore une date inconnue : le retour y ramènera la page du groupe, pas cette date.
+  if (k && push && pub && from != null && BP.o.date) history.replaceState(h, '', BP.o.link);
+  showBandPage(BP.b, { ...BP.o, date: k || null, again: true });
+  if (bandState().date) { if (from != null) BP.back = from; el.scrollTop = 0; } else el.scrollTop = BP.back || 0;
+  if (pub && push) history.pushState(k ? { bpDate: k, bpFrom: from != null ? 'band' : 'date', bpDoc: BP_DOC } : { bpDoc: BP_DOC }, '', k ? dateHref(k) : BP.o.link);
+}
 function bandClose() {
   const el = $('#bandpage');
   bandStop();
   keepAwake(false);
   bandTheme(null);
-  if (el) { el.hidden = true; el.innerHTML = ''; }
+  if (el) { posterClose(el); el.hidden = true; el.innerHTML = ''; }
   document.body.classList.remove('paging');
   BP.inert.forEach(x => { x.inert = false; });
   BP.inert = [];
@@ -1189,6 +1550,14 @@ function bandShell() {
   el = document.createElement('div'); el.id = 'bandpage'; el.className = 'bp'; document.body.append(el);
   el.addEventListener('click', e => {
     if (el.querySelector('.bp-glow')) return bandGlow(false);
+    // L'affiche ouverte : ses boutons, et un toucher à côté la ferme.
+    const pz = el.querySelector('.bp-poster');
+    if (pz) {
+      const pb = e.target.closest('[data-poster-save], [data-poster-share], [data-poster-print], [data-poster-close]');
+      if (!pb) { if (e.target === pz && e.detail < 2) posterClose(el); return; } // le fond seulement, et pas le 2e clic d'un double-clic sur « affiche »
+      if (pb.matches('[data-poster-save]')) posterSave(); else if (pb.matches('[data-poster-share]')) posterSave('share'); else if (pb.matches('[data-poster-print]')) window.print(); else posterClose(el);
+      return;
+    }
     const z = el.querySelector('.bp-zoom'), t = e.target;
     if (z) { if (Date.now() - BP.swiped < 450) return; const step = t.closest('[data-z]'); if (step) bandZoom(el, +z.dataset.i + +step.dataset.z); else z.remove(); return; }
     const pick = t.closest('.bp-try [data-tpl], .bp-try [data-accent]');
@@ -1212,11 +1581,15 @@ function bandShell() {
     if (trk) return bandPlay(+trk.dataset.trk);
     if (t.closest('[data-glow]')) return bandGlow(true);
     const ics = t.closest('[data-ics]');
-    if (ics) return bandAgenda(+ics.dataset.ics);
+    if (ics) return bandAgenda(ics.dataset.ics);
     const share = t.closest('[data-share]');
     if (share) return bandShare(share);
-    const go = t.closest('[data-go]');
-    if (go) { const to = el.querySelector('#' + go.dataset.go); if (to) el.scrollTo({ top: to.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop - 76, behavior: 'smooth' }); return; }
+    // Une date ouvre sa page ; « toute la page du groupe » y ramène. Ctrl ou Cmd + clic garde l'ouverture dans un autre onglet.
+    const date = t.closest('[data-date]'), home = t.closest('[data-home]');
+    if ((date || home) && !(e.metaKey || e.ctrlKey || e.shiftKey || e.button)) { e.preventDefault(); return bandGoto(date ? date.dataset.date : null); }
+    if (date || home) { if (!(date || home).getAttribute('href').startsWith('http')) e.preventDefault(); return; }
+    if (t.closest('[data-qr]')) return bandQrZoom(el);
+    if (t.closest('[data-poster]')) return bandPoster(el, t.closest('[data-poster]'));
     const ph = t.closest('[data-ph]');
     if (ph) { const img = ph.querySelector('img'); if (img) bandZoom(el, [...el.querySelectorAll('[data-ph] img')].indexOf(img)); }
   });
@@ -1224,17 +1597,18 @@ function bandShell() {
   el.addEventListener('touchstart', e => { if (e.target.closest('.bp-zoom')) sx = e.touches[0].clientX; }, { passive: true });
   el.addEventListener('touchend', e => {
     const z = el.querySelector('.bp-zoom');
-    if (!z || !e.target.closest('.bp-zoom')) return;
+    if (!z || z.classList.contains('bp-qrzoom') || !e.target.closest('.bp-zoom')) return;
     const dx = e.changedTouches[0].clientX - sx;
     if (Math.abs(dx) > 45) { BP.swiped = Date.now(); bandZoom(el, +z.dataset.i + (dx < 0 ? 1 : -1)); }
   }, { passive: true });
   document.addEventListener('keydown', e => {
     if (el.hidden) return;
     if (e.key === 'Escape' && el.querySelector('.bp-glow')) return bandGlow(false);
+    if (el.querySelector('.bp-poster')) { if (e.key === 'Escape') posterClose(el); else if (e.code === 'Space' && !(e.target.closest && e.target.closest('button'))) e.preventDefault(); return; }
     const z = el.querySelector('.bp-zoom');
     if (!z) {
       // Espace : écouter et mettre en pause, comme le magnéto de l'appli.
-      if (e.key === 'Escape' && BP.o.preview) return bandClose(); // l'aperçu se ferme comme une feuille
+      if (e.key === 'Escape' && BP.o.preview) return bandState().date ? bandGoto(null) : bandClose(); // l'aperçu se ferme comme une feuille, la page d'une date d'abord
       const c = e.code === 'Space' && e.target.closest ? e.target.closest('input, textarea, select, [contenteditable], iframe, button') : null;
       if (e.code !== 'Space' || !BP.deck || BP.deck.hidden || el.querySelector('.bp-glow') || (c && (c.matches('input, textarea, select, [contenteditable], iframe') || (el.contains(c) && c.matches(':focus-visible'))))) return;
       e.preventDefault(); // ni le défilement, ni un bouton cliqué plus tôt ne prennent la touche
@@ -1242,12 +1616,18 @@ function bandShell() {
       return;
     }
     if (e.key === 'Escape') z.remove();
+    if (z.classList.contains('bp-qrzoom')) return;
     if (e.key === 'ArrowLeft') bandZoom(el, +z.dataset.i - 1);
     if (e.key === 'ArrowRight') bandZoom(el, +z.dataset.i + 1);
   });
+  // Le bouton retour du téléphone, sur l'adresse publique : de la page d'une date à celle du groupe, et inversement.
+  window.addEventListener('popstate', () => {
+    if (el.hidden || !BP.b || BP.o.preview) return;
+    bandGoto(new URLSearchParams(location.search).get('date'), false);
+  });
   return el;
 }
-// Tout afficher. o : { preview, photos, tracks, hero, sign, link, live, onPick, again }.
+// Tout afficher. o : { preview, photos, tracks, hero, sign, link, live, onPick, again, date }. date : la page d'un concert plutôt que celle du groupe.
 function showBandPage(b, o = {}) {
   const el = bandShell();
   if (!o.again) bandStop();
@@ -1263,8 +1643,13 @@ function showBandPage(b, o = {}) {
   const st = bandState();
   const canLive = b && datesOf(b.page).some(x => x.d >= today());
   const top = bandTopHtml(b && o.link);
+  el.classList.toggle('dated', !!st.date);
+  if (el.querySelector('.bp-glow')) keepAwake(false); // la lumière part avec l'ancien rendu (retour arrière, autre date) : l'écran peut de nouveau se mettre en veille
+  posterClose(el); // l'affiche aussi, avec son image
+  // L'onglet du navigateur dit où l'on est : le groupe, ou le groupe et la date.
+  if (b && !o.preview) document.title = st.date ? `${b.name} · ${st.m.day(st.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}, ${st.date.where}` : String(b.name || 'Rec.');
   el.innerHTML = (o.preview ? `<div class="bp-bar"><span>Aperçu</span><div>${canLive ? `<button type="button" class="txt-btn ${o.live ? 'on' : ''}" data-bp-live>${o.live ? 'jour normal' : 'soir de concert'}</button>` : ''}<button type="button" class="txt-btn" data-bp-close>fermer</button></div></div>` : '') +
-    (b ? `<div class="bp-page">${top}<main>${bandHeroHtml(b, st)}<div class="bp-rest">${bandRestHtml(b, st)}</div></main></div>`
+    (b ? `<div class="bp-page">${top}<main>${st.date ? bandDateHtml(b, st.date, st) : bandHeroHtml(b, st)}<div class="bp-rest">${bandRestHtml(b, st)}</div></main></div>`
       : `<div class="bp-page bp-none">${top}<main class="empty"><h1 class="empty-title">${o.offline ? 'Page indisponible' : "Cette page n'existe pas"}</h1><p>${o.offline ? 'Pas de réseau pour le moment. Réessaie dans un instant.' : "Le groupe l'a peut-être fermée, ou l'adresse est incomplète."}</p></main></div>`) +
     (MODELES && o.onPick && b ? bandTryHtml(b) : '');
   // La feuille du modèle arrive à la demande : tant qu'elle n'est pas là, la page reste masquée plutôt qu'à moitié habillée.
@@ -1337,6 +1722,11 @@ async function editBook(g) {
       <input class="field" data-dt="where" maxlength="90" autocomplete="off" placeholder="Salle, ville" value="${esc(x.where || '')}">
       <input class="field" data-dt="url" maxlength="300" autocomplete="off" placeholder="Lien billetterie (facultatif)" value="${esc(x.url || '')}">
       <button type="button" class="txt-btn danger" data-dt-del>retirer</button>
+      <details class="dt-more" ${x.addr || x.link || x.info ? 'open' : ''}><summary>adresse, lien de l'évènement, infos</summary>
+        <input class="field" data-dt="addr" maxlength="140" autocomplete="off" placeholder="Adresse, pour l'itinéraire" value="${esc(x.addr || '')}">
+        <input class="field" data-dt="link" maxlength="300" autocomplete="off" placeholder="Lien de l'évènement : Instagram, Facebook…" value="${esc(x.link || '')}">
+        <input class="field" data-dt="info" maxlength="200" autocomplete="off" placeholder="Infos : prix, ouverture des portes, première partie…" value="${esc(x.info || '')}">
+      </details>
     </div>`;
   const v = await openSheet(`<h2>Le book de « ${esc(g.name)} »</h2>
     <p class="sub">Ce que le public voit sur la page du groupe. Le nom, l'image, la description, le line-up et les liens viennent de la fiche.</p>
@@ -1371,7 +1761,7 @@ async function editBook(g) {
     <label class="label" for="kVideo">Vidéo</label>
     <input class="field" id="kVideo" maxlength="300" autocomplete="off" placeholder="Lien YouTube" value="${esc(page.video || '')}">
     <label class="label">Dates de concert</label>
-    <p class="hint">Le jour, l'heure si tu veux, la salle et la ville. Le soir venu, la page annonce « Ce soir » toute seule.</p>
+    <p class="hint">Le jour, l'heure si tu veux, la salle et la ville. Chaque date a sa page à partager, avec un QR code vers la billetterie (ou le lien de l'évènement) et son affiche, faite avec ta première photo, à partager ou à imprimer. Le soir venu, la page annonce « Ce soir » toute seule.</p>
     <div id="kDates">${datesOf(page).map(dateRow).join('')}</div>
     <button type="button" class="add-take" data-dt-add>+ ajouter une date</button>
 
@@ -1456,7 +1846,7 @@ async function editBook(g) {
       for (const [k, id] of [['tagline', 'kTagline'], ['bio', 'kBio'], ['video', 'kVideo'], ['booking', 'kBooking']]) if (val(id)) out[k] = val(id);
       if (!sh.querySelector('#kLineup').checked) out.lineup = false;
       const list = [...dates.querySelectorAll('.dt-row')].map(r => Object.fromEntries([...r.querySelectorAll('[data-dt]')].map(i => [i.dataset.dt, i.value.trim()]))).filter(x => x.d && x.where);
-      if (list.length) out.dates = list.slice(0, 40).map(x => { const d = { d: x.d, where: x.where }; if (/^\d{2}:\d{2}$/.test(x.h || '')) d.h = x.h; if (x.url) d.url = x.url; return d; });
+      if (list.length) out.dates = list.slice(0, 40).map(x => { const d = { d: x.d, where: x.where }; if (/^\d{2}:\d{2}$/.test(x.h || '')) d.h = x.h; for (const k of ['url', 'addr', 'link', 'info']) if (x[k]) d[k] = x[k]; return d; });
       keepTitles();
       if (tracks.length) out.tracks = tracks.map(x => ({ take: x.take, title: x.title }));
       return out;
@@ -1469,7 +1859,7 @@ async function editBook(g) {
       const btn = e.currentTarget, now = read();
       const profile = { ...profOf(g) };
       if (Object.keys(now).length) profile.page = now; else delete profile.page;
-      if (JSON.stringify(profile).length > 18500) { toast('Le book est trop long pour être enregistré : raccourcis la biographie'); return; }
+      if (JSON.stringify(profile).length > 18500) { toast('Le book est trop long pour être enregistré : raccourcis la biographie ou les infos des dates'); return; }
       btn.disabled = true; btn.textContent = 'Enregistrement…';
       try { await S.store.saveGroupProfile(g.id, g.memo, g.cover, profile); g.profile = profile; close(true); }
       catch (err) { btn.disabled = false; btn.textContent = 'Enregistrer'; fail(err, isNetErr(err) ? 'Il faut du réseau pour enregistrer le book' : 'Enregistrement impossible'); }
@@ -1489,25 +1879,27 @@ async function openPublicPage(raw) {
   document.body.classList.add('paging');
   const sleep = (ms, v = null) => new Promise(r => setTimeout(() => r(v), ms));
   const key = 'rec.page.' + slug, link = pageLink(slug);
+  const dk = new URLSearchParams(location.search).get('date') || null; // arrivé par la page d'une date (lien partagé, QR code)
   let cloud = null;
   const sign = t => cloud.trackUrl(t.path);
   // Déjà venu : on repeint tout de suite ce que l'appareil a gardé, même sans réseau.
   let kept = null;
   try { kept = JSON.parse(localStorage.getItem(key)); } catch {}
   if (!kept || !kept.b || !kept.b.name) kept = null;
-  if (kept) { document.title = kept.b.name; showBandPage(kept.b, { tracks: Array.isArray(kept.tracks) ? kept.tracks : [], hero: kept.hero || '', link, sign }); }
+  if (kept) { document.title = kept.b.name; showBandPage(kept.b, { tracks: Array.isArray(kept.tracks) ? kept.tracks : [], hero: kept.hero || '', link, sign, date: dk }); }
   let b = null, heroP = null, tracksP = null, down = false;
   try {
     cloud = new CloudStore(loadConfig());
     await cloud.init();
     if (slug) {
       heroP = cloud.publicHero(slug).then(x => (isCover(x) ? x : '')).catch(() => null); // '' : pas de photo ; null : pas de réponse
+      BP.heroP = heroP; // l'affiche l'attend si on la demande avant qu'elle arrive
       tracksP = cloud.publicTracks(slug).then(x => (Array.isArray(x) ? x : [])).catch(() => []);
       b = await cloud.publicBand(slug);
     }
   } catch (e) { console.error(e); down = true; if (kept) return; }
   if (!b || !b.name) { if (!down) { try { localStorage.removeItem(key); } catch {} } showBandPage(null, { offline: down }); return; }
-  document.title = b.name;
+  if (!kept) document.title = b.name; // sinon le titre posé par le rendu (le groupe, ou la date) reste juste
   const [tracks, hero] = await Promise.all([
     Promise.race([tracksP, sleep(700)]),
     Promise.race([heroP, sleep(80)]), // la photo n'est plus au premier écran : elle rejoint les photos quand elle arrive
@@ -1515,7 +1907,7 @@ async function openPublicPage(raw) {
   ]);
   const fresh = !kept || JSON.stringify(kept.b) !== JSON.stringify(b);
   const known = h => (h != null ? { hero: h } : {});
-  if (fresh) showBandPage(b, { tracks: tracks || (kept && BP.o.tracks) || [], hero: (kept && kept.hero) || '', ...known(hero), link, sign, again: !!kept });
+  if (fresh) showBandPage(b, { tracks: tracks || (kept && BP.o.tracks) || [], hero: (kept && kept.hero) || '', ...known(hero), link, sign, again: !!kept, date: kept ? BP.o.date : dk }); // la date où le visiteur est déjà allé
   else if (tracks || hero != null) bandRefresh({ ...(tracks ? { tracks } : {}), ...known(hero) });
   // La suite arrive dans les modules, sans toucher à la fiche.
   const all = tracks || await tracksP;

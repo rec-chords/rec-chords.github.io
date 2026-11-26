@@ -996,8 +996,8 @@ body.paging { overflow: hidden; }
 .bp-hero > p { flex: 0 0 100%; margin: 12px 0 0; }
 /* le prochain concert, avec le voyant des onglets */
 .bp-next { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; }
-.bp-next button[data-go] { color: var(--muted); text-align: left; }
-.bp-next button[data-go]:hover b { color: var(--accent); }
+.bp-next [data-date] { color: var(--muted); text-decoration: none; }
+.bp-next [data-date]:hover b { color: var(--accent); }
 .bp-next .txt-btn { padding: 3px 0; }
 .bp-led { flex: none; align-self: center; width: 7px; height: 7px; margin-right: -4px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px 1px var(--accent); } /* le soir du concert seulement */
 .bp-next.live b { color: var(--accent); }
@@ -1019,6 +1019,8 @@ body.paging { overflow: hidden; }
 .bp-day { font: 14.5px var(--mono); color: var(--muted); }
 .bp-date.next .bp-day, .bp-date.next .take-note { color: var(--accent); }
 .bp-date .take-title { white-space: normal; overflow-wrap: anywhere; }
+.bp-dlink { color: inherit; text-decoration: none; }
+.bp-dlink:hover { color: var(--accent); }
 .bp-acts { display: flex; flex-wrap: wrap; gap: 2px 20px; margin: 6px 0 0; }
 .bp-acts .txt-btn { padding: 3px 0; }
 .bp-sep { padding: 20px 0 9px; border-top: 1px solid var(--line); font: 500 12.5px var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--muted); }
@@ -1036,6 +1038,39 @@ body.paging { overflow: hidden; }
 .bp-shot:first-child img { aspect-ratio: 16 / 10; }
 .bp-frame { position: relative; aspect-ratio: 16 / 9; margin: 14px 0 10px; overflow: hidden; border-radius: 4px; background: #000; }
 .bp-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+
+/* La page d'une date : sous la fiche du groupe, le concert et son QR code */
+.bp-gig { flex: 0 0 100%; display: flex; flex-wrap: wrap; align-items: flex-start; gap: 26px 48px; margin: 4px 0 0; font: 17px/1.45 var(--sans); color: var(--text); }
+.bp-gig-main { flex: 1 1 320px; min-width: 0; max-width: 620px; }
+.bp-gig-when { margin: 0; font: 600 clamp(27px, 3.4vw, 36px)/1.12 var(--sans); letter-spacing: -.03em; }
+.bp-gig-when span { font-weight: 500; color: var(--muted); white-space: nowrap; }
+.bp .bp-gig-soon { display: flex; align-items: center; gap: 10px; margin: 8px 0 0; font: 14.5px var(--mono); color: var(--accent); }
+.bp-gig-soon .bp-led { margin: 0; }
+.bp .bp-gig.old .bp-gig-soon { color: var(--muted); }
+.bp .bp-gig-where { margin: 22px 0 0; overflow-wrap: anywhere; }
+.bp-gig-where b { font-weight: 600; }
+.bp-gig-where span { display: block; color: var(--muted); }
+.bp .bp-gig-info { margin: 12px 0 0; color: var(--muted); overflow-wrap: anywhere; }
+.bp-home { display: inline-block; margin-top: 12px; padding: 3px 0; }
+.bp-gig .bp-acts { margin-top: 18px; }
+.bp-qr { flex: none; display: grid; justify-items: start; gap: 3px; width: 152px; padding: 0; text-align: left; cursor: zoom-in; }
+.bp-qr .qr { display: block; width: 152px; height: 152px; margin-bottom: 8px; border-radius: 4px; }
+.bp-qr span, .bp-qr small { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 13px var(--mono); color: var(--muted); }
+.bp-qr span { color: var(--text); }
+.bp-zoom.bp-qrzoom div { display: grid; justify-items: center; gap: 6px; max-width: 100%; text-align: center; }
+.bp-zoom.bp-qrzoom .qr { width: min(82vw, 62vh, 440px); height: auto; margin-bottom: 14px; border-radius: 6px; }
+.bp-zoom.bp-qrzoom b { font: 600 19px var(--sans); color: #fff; }
+.bp-zoom.bp-qrzoom span { position: static; max-width: 82vw; overflow-wrap: anywhere; font: 13.5px var(--mono); color: #bbb; }
+
+/* L'affiche d'une date, en grand par-dessus la page */
+.bp-poster { position: fixed; inset: 0; z-index: 40; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; padding: calc(18px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom)); background: rgba(5, 5, 6, .985); cursor: zoom-out; }
+.bp-poster img { display: block; min-height: 0; max-width: 100%; max-height: calc(100dvh - 120px); width: auto; height: auto; box-shadow: 0 18px 60px rgba(0, 0, 0, .7); cursor: auto; }
+.bp-poster-acts { display: flex; flex-wrap: wrap; justify-content: center; gap: 0 22px; margin: -6px 0; cursor: auto; }
+.bp-poster-acts .txt-btn { padding: 9px 2px; color: #f1f1f3; } /* une cible assez grande pour le doigt */
+.bp-poster-acts .txt-btn.accent { color: var(--accent); }
+.bp-poster:focus { outline: none; }
+.bp-poster-wait { margin: 0; font: 14.5px var(--mono); color: #bbb; }
+.bp-poster-hint { max-width: 32ch; margin: 0; font-size: 13.5px; line-height: 1.45; text-align: center; color: #a8a8ae; cursor: auto; }
 
 /* Le bas de page */
 .bp-foot { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 28px; margin: 22px 24px 0; padding: 18px 0 0; border-top: 1px solid var(--line); font: 14.5px var(--mono); color: var(--muted); }
@@ -1087,6 +1122,42 @@ body.paging { overflow: hidden; }
 @keyframes bp-pulse { from { opacity: .4; } to { opacity: 1; } }
 @keyframes bp-breathe { from { opacity: .22; } to { opacity: 1; } }
 
+/* Imprimée, la page d'une date devient la fiche du concert : sur fond blanc, sans boutons ni lecteur, le QR code bien visible.
+   La page du groupe s'imprime de la même façon, avec tous ses modules. */
+@media print {
+  /* le body garde à l'écran une marge pour le magnéto : à l'impression, elle enverrait la date sur une 2e feuille */
+  html, body.paging { height: auto !important; min-height: 0 !important; padding: 0 !important; overflow: visible !important; background: #fff !important; }
+  html:has(> body.paging) { color-scheme: light; -webkit-print-color-adjust: exact; print-color-adjust: exact; } /* sinon les marges de la feuille prennent le fond sombre du thème */
+  body.paging > :not(#bandpage) { display: none !important; }
+  /* ses propres marges de feuille : celles de la fiche technique (@page à 0) laisseraient les feuilles suivantes collées au bord */
+  .bp { page: bandsheet; position: static; overflow: visible; --bg: #fff; --text: #111; --muted: #555; --dim: #8f8f8f; --line: #d6d6d6; --accent: #5b46f0; background: #fff; color: #111; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .bp-bar, .bp-top, .bp-mag, .bp-zoom, .bp-glow, .bp-try, .bp .bp-acts, .bp .band-acts, .bp-next .txt-btn, .bp-foot, .bp.dated .bp-rest { display: none !important; }
+  .bp .bp-page { padding: 6mm 18mm 0 !important; }
+  .bp .board { columns: auto; }
+  .bp .hero { padding: 0; }
+  .bp .band { padding-bottom: 9mm; margin-bottom: 6mm; }
+  .bp-home, .bp-gig-soon { display: none !important; } /* « dans 5 jours » serait faux une fois la feuille au mur */
+  /* sur papier, tout en plus grand, et le QR code sous les infos pour qu'il se scanne de loin */
+  .bp .band-cover { width: 32mm; height: 32mm; }
+  .bp .bp-name { font-size: 42pt; }
+  .bp .band .band-tag { font-size: 11pt; }
+  .bp-gig { flex-direction: column; gap: 12mm; break-inside: avoid; }
+  .bp-gig-main { flex: none; max-width: none; }
+  .bp .bp-gig-when { font-size: 30pt; }
+  .bp .bp-gig-where, .bp .bp-gig-info { font-size: 15pt; }
+  .bp .bp-gig-where { margin-top: 8mm; }
+  .bp-qr { width: auto; }
+  .bp-qr .qr { width: 70mm; height: 70mm; margin: 0 0 3mm -6mm; } /* la marge blanche du QR code déborde à gauche : ses carrés s'alignent sur le texte */
+  .bp-qr span, .bp-qr small { font-size: 12pt; }
+  /* l'affiche ouverte s'imprime seule, bord à bord sur une feuille A4 */
+  .bp.postering { page: poster; }
+  .bp.postering > :not(.bp-poster), .bp-poster-acts, .bp-poster-wait, .bp-poster-hint { display: none !important; }
+  .bp.postering .bp-poster { position: static; display: block; padding: 0; background: none; }
+  .bp.postering .bp-poster img { width: 210mm; height: 297mm; max-width: none; max-height: none; box-shadow: none; }
+}
+@page bandsheet { margin: 12mm 0; }
+@page poster { size: A4; margin: 0; }
+
 @media (max-width: 520px) {
   .bp-name { font-size: clamp(30px, 9vw, 40px); }
   .bp .bp-line { font-size: 17.5px; }
@@ -1124,8 +1195,17 @@ body.paging { overflow: hidden; }
 .trk-add { display: flex; align-items: center; gap: 14px; margin-top: 12px; }
 .trk-add[hidden] { display: none; }
 .trk-add .field { flex: 1 1 auto; min-width: 0; }
-.dt-row { grid-template-columns: 150px 108px 1fr auto; }
-.dt-row [data-dt="url"] { grid-column: 1 / 4; }
-.dt-row [data-dt-del] { grid-row: 1; grid-column: 4; }
+/* la feuille du book est étroite, même sur ordinateur : le jour et l'heure sur une ligne, la salle et la billetterie chacune sur la sienne */
+.dt-row { grid-template-columns: minmax(0, 1fr) 124px auto; }
+.dt-row [data-dt="d"] { grid-column: 1; }
+.dt-row [data-dt="h"] { grid-column: 2; }
+.dt-row [data-dt="where"], .dt-row [data-dt="url"] { grid-column: 1 / -1; }
+.dt-row [data-dt-del] { grid-row: 1; grid-column: 3; }
+.dt-row + .dt-row { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+/* les détails d'une date, repliés tant qu'ils sont vides */
+.dt-more { grid-column: 1 / -1; }
+.dt-more summary { width: max-content; max-width: 100%; padding: 3px 0; font: 13.5px var(--mono); color: var(--muted); cursor: pointer; }
+.dt-more[open] summary { color: var(--text); }
+.dt-more .field { display: block; width: 100%; margin-top: 8px; }
 @media (max-width: 520px) { .trk-row { grid-template-columns: minmax(0, 1fr) auto auto; } .trk-row .field { grid-column: 1 / -1; }
   .dt-row { grid-template-columns: 1fr 104px auto; } .dt-row [data-dt="d"] { grid-column: 1; } .dt-row [data-dt="h"] { grid-column: 2; } .dt-row [data-dt="where"], .dt-row [data-dt="url"] { grid-column: 1 / -1; } .dt-row [data-dt-del] { grid-row: 1; grid-column: 3; } }
