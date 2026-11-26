@@ -1219,38 +1219,42 @@ body.paging { overflow: hidden; }
 @media (max-width: 520px) { .trk-row { grid-template-columns: minmax(0, 1fr) auto auto; } .trk-row .field { grid-column: 1 / -1; }
   .dt-row { grid-template-columns: 1fr 104px auto; } .dt-row [data-dt="d"] { grid-column: 1; } .dt-row [data-dt="h"] { grid-column: 2; } .dt-row [data-dt="where"], .dt-row [data-dt="url"] { grid-column: 1 / -1; } .dt-row [data-dt-del] { grid-row: 1; grid-column: 3; } }
 
-/* ---------- Entrée : un ampli (façade, deux sélecteurs, les entrées en pads sur la toile) ---------- */
+/* ---------- Entrée : un ampli (la façade et son voyant, le potard des entrées d'une carte, les entrées en pads) ---------- */
 .amp-in .amp-head { display: block; }
-.amp-in .amp-head h2 { overflow-wrap: anywhere; }
-.amp-controls { display: flex; align-items: flex-end; gap: 30px; margin-top: 14px; padding-top: 13px; border-top: 1px solid var(--line); }
-.amp-sel { display: grid; justify-items: center; gap: 7px; transition: opacity .2s; }
-.amp-sel-pos { display: flex; gap: 14px; }
-.amp-sel-pos button { padding: 2px 0 3px; font: 500 12px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid transparent; }
+.amp-title { display: flex; align-items: center; gap: 12px; }
+.amp-title span { min-width: 0; overflow-wrap: anywhere; }
+/* Le voyant ne s'allume qu'avec le son : éteint, il dit « je n'entends rien ». */
+.amp-in .amp-led { position: relative; background: var(--line); box-shadow: none; }
+.amp-in .amp-led::after, .amp-vu::after { content: ""; position: absolute; inset: 0; border-radius: 50%;
+  background: radial-gradient(circle at 50% 45%, color-mix(in srgb, var(--accent) 55%, #fff), var(--accent) 70%);
+  opacity: var(--lvl, 0); box-shadow: 0 0 calc(12px * var(--lvl, 0)) calc(2px * var(--lvl, 0)) var(--accent); }
+.amp-in .amp-led.sat::after { opacity: 1; background: var(--red); box-shadow: 0 0 10px 1px var(--red); }
+.amp-etat { margin: 4px 0 0 20px; font: 12.5px var(--mono); color: var(--muted); }
+.amp-controls { display: flex; margin-top: 14px; padding-top: 13px; border-top: 1px solid var(--line); }
+.amp-sel { display: grid; justify-items: center; gap: 9px; }
+.amp-sel-pos { display: flex; gap: 16px; }
+.amp-sel-pos button { display: inline-flex; align-items: center; gap: 7px; padding: 2px 0 3px; font: 500 12px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid transparent; }
 .amp-sel-pos button:hover { color: var(--text); }
 .amp-sel-pos button.on { color: var(--text); border-bottom-color: var(--accent); }
+.amp-vu { position: relative; flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--line); }
 .amp-dial { position: relative; width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--line);
   background: radial-gradient(circle at 35% 28%, color-mix(in srgb, var(--text) 20%, var(--bg)), var(--bg) 72%);
   box-shadow: 0 0 0 3px var(--bg), 0 0 0 4px var(--line); transform: rotate(var(--a, 0deg)); transition: transform .32s cubic-bezier(.3, 1.4, .5, 1); }
 .amp-dial::after { content: ""; position: absolute; left: 50%; top: 3px; width: 2px; height: 9px; margin-left: -1px; border-radius: 1px; background: var(--accent); }
 .amp-dial::before { content: ""; position: absolute; inset: -8px; border-radius: 50%; }
-.amp-sel-name { font: 11px var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--muted); }
-.amp-sel.off { opacity: .35; }
-.amp-sel.off button { cursor: default; }
-.amp-sel.off .amp-dial::after { background: var(--dim); }
-.amp-in .amp-led { transition: background .35s, box-shadow .35s; }
-.amp-in.amp-off .amp-led { background: var(--line); box-shadow: none; }
 .amp-in.amp-off .amp-dial { transform: rotate(-140deg); }
 .amp-in .pads { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.amp-in .pad { position: relative; min-height: 84px; }
-.amp-in .pad b { padding-right: 14px; overflow-wrap: anywhere; }
-.amp-in .pad::after { content: ""; position: absolute; top: 13px; right: 12px; width: 7px; height: 7px; border-radius: 50%; background: var(--line); }
+.amp-in .pad { min-height: 84px; }
+.amp-in .pad b { overflow-wrap: anywhere; }
 .amp-in .pad.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--bg)); }
-.amp-in .pad.on::after { background: var(--accent); box-shadow: 0 0 8px 1px var(--accent); }
-.amp-allow { margin: 10px 2px 0; font: 13px/1.5 var(--mono); color: var(--muted); }
+.amp-in .pad.wide { grid-column: 1 / -1; min-height: 0; }
+.amp-in .pad.ghost { opacity: .55; }
+.amp-allow { margin: 4px 2px 2px; font: 13px/1.5 var(--mono); color: var(--muted); }
 .amp-note { margin: 12px 6px 0; font: 13.5px/1.5 var(--mono); color: var(--muted); }
 .amp-foot { margin-top: 12px; }
-@media (max-width: 480px) { .amp-controls { gap: 24px; margin-top: 11px; padding-top: 11px; } .amp-in .pad { min-height: 72px; } }
-@media (prefers-reduced-motion: reduce) { .amp-dial, .amp-in .amp-led { transition: none; } }
+@media (max-width: 480px) { .amp-controls { margin-top: 11px; padding-top: 11px; } .amp-in .pad { min-height: 72px; } }
+@media (max-width: 360px) { .amp-sel-pos { gap: 10px; } .amp-sel-pos button { letter-spacing: .04em; } }
+@media (prefers-reduced-motion: reduce) { .amp-dial { transition: none; } }
 
 /* ---------- Le magnéto pendant une prise : recommencer, arrêter, pause ---------- */
 /* « Arrêter » reste au centre ; les deux autres touches s'y collent, quelle que soit la longueur de leur nom. */

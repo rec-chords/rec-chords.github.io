@@ -3247,15 +3247,15 @@ function pickMime() {
 
 /* ---------------- Entrée audio ---------------- */
 // Ce qu'enregistre « Enregistrer » : le micro par défaut, ou une carte son (une guitare branchée dans une Scarlett…).
-// fredon.entree = { id, nom, son: 'voix' | 'instrument', canal: '1' | '2' | '12' }. Sans réglage : le micro par défaut, en voix.
-// Choisir une carte passe en « instrument » : le son brut, sans le traitement prévu pour la voix, qui abîme une guitare.
-const INPUT = { voies: new Map() }; // nombre de canaux vu pour chaque entrée, en instrument
+// fredon.entree = { id, nom, son: 'voix' | 'instrument', canal: '1' | '2' | '12', voies? }. Sans réglage : le micro par défaut, en voix.
+// Le son n'est plus choisi à la main : il se déduit de l'entrée touchée. Une carte, un micro USB passent en « instrument » :
+// le son brut, sans le volume automatique prévu pour le micro de l'appareil, qui abîme une guitare.
+const INPUT = { voies: new Map(), sysLabel: '' }; // nombre de canaux vu pour chaque entrée, en instrument ; le nom de l'entrée du système
 const loadInput = () => { try { return JSON.parse(localStorage.getItem('fredon.entree')) || {}; } catch { return {}; } };
 const saveInput = v => { try { localStorage.setItem('fredon.entree', JSON.stringify(v)); } catch {} };
 const inputName = label => (label || '').replace(/^(par défaut|défaut|default|communications)\s*-\s*/i, '').replace(/\s*\([0-9a-f]{4}:[0-9a-f]{4}\)$/i, '').trim();
 const ALIAS = id => id === 'default' || id === 'communications'; // les noms que donne le système à « son » micro, pas des appareils
 const inputRaw = cfg => (cfg.id ? cfg.son !== 'voix' : cfg.son === 'instrument');
-const describeInput = cfg => `${cfg.id ? cfg.nom || 'Entrée choisie' : 'Par défaut'}${inputRaw(cfg) ? ' · instrument' : ''}`;
 async function audioInputs() {
   try { return (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'audioinput'); } catch { return []; }
 }
@@ -3285,7 +3285,8 @@ async function openInput() {
     const track = stream.getAudioTracks()[0];
     const voies = track?.getSettings?.().channelCount;
     if (raw && voies) INPUT.voies.set(dev || 'default', voies);
-    return { stream, input: { id: dev, raw, canal: cfg.canal || '12', voies, label: inputName(track?.label) } };
+    if (!dev && track?.label) INPUT.sysLabel = track.label;
+    return { stream, input: { id: dev, raw, canal: cfg.canal || '12', voies, label: inputName(track?.label), full: track?.label || '' } };
   };
   if (id) {
     try { return await open(id, inputRaw(cfg)); }
@@ -3303,7 +3304,7 @@ async function openInput() {
         return card;
       } catch {}
     }
-    toast(`« ${cfg.nom || 'Entrée choisie'} » indisponible : micro par défaut`);
+    toast(`« ${cfg.nom ? nomAffiche(cfg.nom) : 'Entrée choisie'} » indisponible : ${minuscule(nomAffiche(res.input.full))}`);
   }
   return res;
 }
@@ -3346,122 +3347,367 @@ async function routeChannels(stream, canal) {
   }
 }
 
-// Le panneau Entrée est un ampli. La façade affiche l'entrée choisie ; deux sélecteurs règlent le son et le canal ;
-// les entrées de l'ordinateur sont des pads sur la toile. Rien ne change avant « Valider » : « Annuler », Échap ou un clic à côté gardent l'entrée d'avant.
+// Ce qu'on déduit du nom d'une entrée. Branchée (carte son, micro USB, entrée ligne) : enregistrée telle quelle.
+// Sinon c'est le micro de l'appareil, dont le volume se règle tout seul. Plus rien à choisir à la main.
+const USB_ID = /\([0-9a-f]{4}:[0-9a-f]{4}\)\s*$/i; // l'identifiant USB que Chrome ajoute au nom
+const BRANCHE = /\b(usb|line|ligne|scarlett|focusrite|audient|motu|presonus|steinberg|behringer|umc\w*|irig|apollo|universal audio|rme|tascam|roland|arturia|m-audio|komplete|volt|ssl\w*|zoom)\b/i;
+const INTEGRE = /realtek|high definition audio|built-?in|intégré|interne|internal|microphone array|réseau de micro|macbook|imac|speakerphone|earpiece/i;
+const INTEGRE_MOBILE = /iphone|ipad|micro|default|défaut/i; // sur un téléphone, son micro sous ses différents noms (sur Mac, « iPhone » est le micro de l'iPhone)
+const PAS_MICRO = /stereo mix|mixage st[eé]r[eé]o|what u hear|loopback/i;
+const A_PART = /bluetooth|airpods|buds|wired|filaire|headset(?! earpiece)/i; // sur un téléphone : ce qui n'est pas son micro
+const MOBILE = IOS || /Android/i.test(navigator.userAgent);
+const APPAREIL = (/iPad/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) || (/Android/i.test(navigator.userAgent) && !/Mobile/i.test(navigator.userAgent)))
+  ? 'de la tablette' : MOBILE ? 'du téléphone' : "de l'ordi";
+const estBranche = label => !!label && (USB_ID.test(label) || BRANCHE.test(label));
+function estIntegre(label) {
+  if (estBranche(label) || PAS_MICRO.test(label || '')) return false;
+  const n = inputName(label);
+  return !n || INTEGRE.test(label) || /^micro(phone)?$/i.test(n) || (MOBILE && INTEGRE_MOBILE.test(label) && !A_PART.test(label));
+}
+// Le nom de l'entrée du système : celle que nomme « Par défaut » (Chrome), sinon la première de la liste (Safari, Firefox).
+function learnSys(devs) {
+  const al = devs.find(d => d.deviceId === 'default'), first = devs.find(d => d.deviceId && !ALIAS(d.deviceId) && d.label);
+  const l = al && al.label ? al.label : first ? first.label : '';
+  if (l) INPUT.sysLabel = l;
+  return l;
+}
+// Le nom affiché : « Micro de l'ordi » pour le micro de l'appareil ; sinon le nom de l'entrée, sans « Microphone ( … ) » autour.
+function nomAffiche(label) {
+  if (estIntegre(label)) return `Micro ${APPAREIL}`;
+  const n = inputName(label), m = /^(?:microphone|micro|line|ligne|entrée)\s*\((?:\d+-\s*)?(.+)\)$/i.exec(n);
+  return (m ? m[1] : n).trim() || 'Entrée';
+}
+const minuscule = n => (n.startsWith('Micro ') ? `m${n.slice(1)}` : n);
+// La ligne des réglages : ce qui enregistre, et l'entrée de la carte si une seule est gardée.
+const describeInput = cfg => `${cfg.id ? (cfg.nom ? nomAffiche(cfg.nom) : 'Entrée choisie') : nomAffiche(INPUT.sysLabel || '')}${inputRaw(cfg) && cfg.voies >= 2 && cfg.canal && cfg.canal !== '12' ? ` · entrée ${cfg.canal}` : ''}`;
+
+// Les entrées en pads : une par appareil (le « par défaut » du système n'en est pas un). Sur un téléphone, ses micros n'en font qu'un.
+// Le pad allumé : l'entrée réglée, retrouvée par son nom si son identifiant a changé ; sans réglage, celle du système.
+function inputPads(devs, cfg) {
+  let real = [];
+  for (const d of devs) if (d.deviceId && !ALIAS(d.deviceId) && d.label && !real.some(r => inputName(r.label) === inputName(d.label))) real.push(d);
+  // L'entrée du système : celle que nomme « Par défaut » (Chrome), sinon la première (Safari, Firefox).
+  const alias = devs.find(d => d.deviceId === 'default');
+  let sys = alias ? real.find(d => inputName(d.label) === inputName(alias.label)) : real[0];
+  if (!sys && alias && estIntegre(alias.label)) sys = real.find(d => estIntegre(d.label)); // « Default » d'Android : le micro du téléphone
+  const merged = new Map();
+  if (MOBILE) {
+    const integ = real.filter(d => estIntegre(d.label)), keep = integ.includes(sys) ? sys : integ[0];
+    for (const d of integ) merged.set(d.deviceId, keep);
+    real = real.filter(d => !integ.includes(d) || d === keep);
+  }
+  const pads = real.map(d => ({ id: d.deviceId, label: d.label, nom: nomAffiche(d.label), integ: estIntegre(d.label), branche: estBranche(d.label), system: d === sys }));
+  for (const p of pads) if (pads.filter(q => q.nom === p.nom).length > 1) p.note = inputName(p.label);
+  let cur = null;
+  if (cfg.id) {
+    const m = merged.get(cfg.id);
+    cur = pads.find(p => p.id === (m ? m.deviceId : cfg.id)) || (cfg.nom && pads.find(p => inputName(p.label) === cfg.nom)) || null;
+    if (!cur) pads.push(cur = { id: cfg.id, label: '', nom: cfg.nom ? nomAffiche(cfg.nom) : 'Entrée choisie', ghost: true });
+  } else cur = pads.find(p => p.system) || null;
+  return { pads, cur };
+}
+// Le réglage qu'écrit le toucher d'un pad. Le micro de l'appareil, quand c'est celui du système, reste « suivre le système ».
+const deduit = p => (p.system && p.integ ? { id: '', nom: '', son: 'voix' } : { id: p.id, nom: inputName(p.label), son: p.branche ? 'instrument' : 'voix' });
+// Ce qu'une prise ouvrirait avec ce réglage, comme openInput : l'entrée (retrouvée par son nom au besoin), et le son brut ou non.
+function resolveInput(c, list) {
+  let id = c.id || '';
+  if (id && list.some(d => d.label) && !list.some(d => d.deviceId === id)) {
+    const same = c.nom && list.find(d => !ALIAS(d.deviceId) && inputName(d.label) === c.nom);
+    id = same ? same.deviceId : '';
+  }
+  return { id, raw: c.id && !id ? false : inputRaw(c) };
+}
+// Valider relancerait-elle la prise en cours ? La même règle sert à la phrase du panneau et à la relance.
+function relanceVoulue(c, list) {
+  const now = REC.input;
+  if (!REC.recorder || !now) return false;
+  const r = resolveInput(c, list);
+  return r.id !== (now.id || '') || r.raw !== !!now.raw || (r.raw && (c.canal || '12') !== (now.canal || '12'));
+}
+
+// Le panneau Entrée est un ampli. Une seule question : qu'est-ce qui enregistre ? La façade porte son nom et un voyant
+// qui s'allume avec le son. Pour une carte à deux entrées, un potard garde l'entrée 1, la 2 ou les deux.
+// Rien ne change avant « Valider » : « Annuler », Échap ou un clic à côté gardent l'entrée d'avant.
 const AMP_MIC = '<rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M6 11.5a6 6 0 0012 0M12 17.5V21"/>';
 const AMP_JACK = '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/>';
-const AMP_SEL = { // positions : valeur, étiquette, angle du potard
-  son: { label: 'Son', opts: [['voix', 'Voix', -40], ['instrument', 'Instrument', 40]] },
-  canal: { label: 'Canal', opts: [['1', '1', -50], ['12', '1+2', 0], ['2', '2', 50]] },
-};
-const ampSel = name => {
-  const s = AMP_SEL[name];
-  return `<div class="amp-sel" data-sel="${name}" role="radiogroup" aria-label="${s.label}">
-    <div class="amp-sel-pos">${s.opts.map(([v, l]) => `<button role="radio" aria-checked="false" data-${name}="${v}">${l}</button>`).join('')}</div>
-    <button class="amp-dial" data-dial="${name}" tabindex="-1" aria-hidden="true"></button>
-    <span class="amp-sel-name" aria-hidden="true">${s.label}</span>
-  </div>`;
-};
+const CANAL = [['1', 'Entrée 1', -50], ['12', 'Les deux', 0], ['2', 'Entrée 2', 50]]; // valeur, étiquette, angle du potard
+const canalAngle = c => `${(CANAL.find(o => o[0] === (c || '12')) || CANAL[1])[2]}deg`;
+let inputPreviewStop = null; // coupe l'écoute du panneau Entrée : une prise qui démarre ne trouve jamais l'entrée tenue
 async function openInputSheet() {
+  // Le moteur audio de l'écoute naît dans le geste qui ouvre le panneau : plus tard, iOS le laisserait muet.
+  const AC = window.AudioContext || window.webkitAudioContext;
+  let pctx = null;
+  if (AC && navigator.mediaDevices?.getUserMedia && !REC.recorder && !REC.starting) { try { pctx = new AC(); } catch {} }
   const before = JSON.stringify(loadInput());
   let cfg = loadInput();
-  let devs = await audioInputs();
-  const son = () => (inputRaw(cfg) ? 'instrument' : 'voix');
-  const paint = sh => {
-    const body = sh.querySelector('#inputBody');
-    if (!body) return;
-    const named = devs.some(d => d.label);
-    const def = devs.find(d => d.deviceId === 'default');
-    const items = [{ id: '', nom: 'Par défaut', note: def ? inputName(def.label) : '' }];
-    for (const d of devs) if (d.deviceId && !ALIAS(d.deviceId)) items.push({ id: d.deviceId, nom: inputName(d.label) || 'Entrée', note: '' });
-    let cur = cfg.id || '';
-    if (cur && !items.some(i => i.id === cur)) {
-      const same = named && cfg.nom && items.find(i => i.nom === cfg.nom);
-      if (same) cur = same.id;
-      else items.push({ id: cur, nom: cfg.nom || 'Entrée choisie', note: named ? 'débranchée' : '' });
-    }
-    const raw = inputRaw(cfg);
-    const canal = cfg.canal || '12';
-    const mono = INPUT.voies.get(cur || 'default') === 1;
-    sh.querySelector('#inputName').textContent = items.find(i => i.id === cur).nom;
-    // Les sélecteurs restent en place : seul le potard tourne. Le canal ne compte qu'en instrument, sur une entrée à deux canaux.
-    const setSel = (name, val, off = '') => {
-      const box = sh.querySelector(`[data-sel="${name}"]`);
-      const opt = AMP_SEL[name].opts.find(o => o[0] === val) || AMP_SEL[name].opts[0];
-      box.classList.toggle('off', !!off);
-      box.title = off;
-      const dial = box.querySelector('.amp-dial');
-      dial.style.setProperty('--a', `${opt[2]}deg`);
-      dial.disabled = !!off;
-      box.querySelectorAll('[role="radio"]').forEach(b => {
-        const on = b.dataset[name] === opt[0];
-        b.classList.toggle('on', on);
-        b.setAttribute('aria-checked', on);
-        b.disabled = !!off;
-      });
-    };
-    setSel('son', son());
-    setSel('canal', canal, !raw ? 'En instrument seulement' : mono ? "Cette entrée n'a qu'un canal" : '');
-    sh.querySelector('#inputNote').textContent = (raw
-      ? 'Le son brut, sans traitement : pour une guitare ou un micro branchés dans une carte son.'
-      : "Le volume se règle tout seul : pour le micro de l'ordi ou du téléphone.")
-      + (raw && !mono ? { 1: " On enregistre l'entrée 1 de la carte.", 2: " On enregistre l'entrée 2 de la carte.", 12: ' On enregistre les deux entrées de la carte, mélangées.' }[canal] || '' : '');
-    body.innerHTML = `<div class="pads">${items.map(i => `<button class="pad ${i.id === cur ? 'on' : ''}" data-dev="${esc(i.id)}" aria-pressed="${i.id === cur}">${ico(i.id ? AMP_JACK : AMP_MIC)}<b>${esc(i.nom)}</b>${i.note ? `<small>${esc(i.note)}</small>` : ''}</button>`).join('')}</div>
-      ${named ? '' : `<p class="amp-allow">Le nom des entrées s'affiche une fois le micro autorisé. <button class="txt-btn accent" data-allow>autoriser le micro</button></p>`}`;
-    body.querySelectorAll('[data-dev]').forEach(b => { b.onclick = () => {
-      const id = b.dataset.dev;
-      cfg = { ...cfg, id, nom: id ? items.find(i => i.id === id).nom : '', son: id ? 'instrument' : 'voix' };
-      paint(sh);
-    }; });
-    const allow = body.querySelector('[data-allow]');
-    if (allow) allow.onclick = async () => {
-      try { (await navigator.mediaDevices.getUserMedia({ audio: true })).getTracks().forEach(t => t.stop()); }
-      catch { toast('Micro refusé : autorise-le pour cette page dans le navigateur.'); return; }
-      devs = await audioInputs();
-      paint(sh);
-    };
+  let devs = [], sys = '';
+  const list = async () => { devs = await audioInputs(); sys = learnSys(devs); };
+  await list();
+  let refused = '', etat = '', sheet = null, amp = null, raf = 0, ended = false, lastHtml = null, frames = 0, touched = false;
+  const named = () => devs.some(d => d.label);
+  const keyOf = id => id || 'default';
+  if (cfg.voies) { const k = keyOf(resolveInput(cfg, devs).id); if (!INPUT.voies.has(k)) INPUT.voies.set(k, cfg.voies); }
+  // Hors prise, le réglage se lit comme si on venait de toucher l'entrée : une carte qui est l'entrée du système est prise
+  // telle quelle ; un ancien réglage (« voix » ou « instrument » choisi à la main) reprend le son que dicte l'appareil.
+  const adopt = () => {
+    if (REC.recorder || REC.starting) return;
+    const { cur } = inputPads(devs, cfg);
+    if (!cur || cur.ghost) return;
+    if (cfg.id) { const son = deduit(cur).son; if (cfg.son !== son) cfg = { ...cfg, son }; }
+    else if (cur.branche) cfg = { ...deduit(cur), canal: cfg.canal || '12' };
+    else if (cur.integ && cfg.son === 'instrument') cfg = { ...cfg, son: 'voix' };
   };
-  let refresh = null;
+  adopt();
+
+  // L'écoute, hors prise : l'entrée affichée, ouverte comme pour une prise, seulement si le micro est déjà autorisé.
+  const pv = { tok: 0, key: '', stream: null, nodes: [], all: null, ch: [] };
+  const stopPreview = () => {
+    pv.tok++;
+    if (pv.stream) pv.stream.getTracks().forEach(t => t.stop());
+    pv.nodes.forEach(n => { try { n.disconnect(); } catch {} });
+    Object.assign(pv, { key: '', stream: null, nodes: [], all: null, ch: [] });
+  };
+  // Pendant une prise : jamais de micro rouvert. Les deux entrées de la carte sont lues sur la prise elle-même.
+  const rt = { rec: null, nodes: [], ch: [] };
+  const dropTap = () => { rt.nodes.forEach(n => { try { n.disconnect(); } catch {} }); Object.assign(rt, { rec: null, nodes: [], ch: [] }); };
+  const recTap = () => {
+    if (rt.rec === REC.recorder) return;
+    dropTap();
+    rt.rec = REC.recorder;
+    const i = REC.input;
+    if (!REC.recorder || !i || !i.raw || !(i.voies >= 2) || !REC.ctx || !REC.stream) return;
+    try {
+      const src = REC.ctx.createMediaStreamSource(REC.stream), sp = REC.ctx.createChannelSplitter(2);
+      src.connect(sp);
+      rt.nodes.push(src, sp);
+      for (let k = 0; k < 2; k++) { const a = REC.ctx.createAnalyser(); a.fftSize = 1024; sp.connect(a, k); rt.nodes.push(a); rt.ch.push(a); }
+    } catch {}
+  };
+  const alive = () => !ended && !!amp && amp.isConnected;
+  async function startPreview() {
+    if (!pctx || !alive() || REC.recorder || REC.starting || REC.restart || document.hidden || !named()) return;
+    const { cur } = inputPads(devs, cfg);
+    if (cfg.id && (!cur || cur.ghost)) { stopPreview(); return; } // l'entrée réglée n'est pas là : rien à écouter
+    const r = resolveInput(cfg, devs), key = `${r.id}|${r.raw}`;
+    if (pv.key === key) return; // déjà ouverte, ou en train de l'être (un échec n'est pas retenté en boucle)
+    stopPreview();
+    const tok = pv.tok;
+    pv.key = key;
+    let st;
+    try { st = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints(r.id, r.raw) }); }
+    catch (e) {
+      if (tok !== pv.tok) return;
+      if (e.name === 'NotReadableError' || e.name === 'AbortError') { etat = 'occupée par une autre appli'; paint(); }
+      return;
+    }
+    if (tok !== pv.tok || !alive() || REC.recorder || REC.starting) { st.getTracks().forEach(t => t.stop()); return; }
+    const tr = st.getAudioTracks()[0], voies = tr?.getSettings?.().channelCount;
+    if (r.raw && voies) INPUT.voies.set(keyOf(r.id), voies);
+    if (!r.id && tr?.label) INPUT.sysLabel = tr.label;
+    tr?.addEventListener('ended', () => { if (pv.stream !== st) return; stopPreview(); pv.key = key; etat = 'débranchée'; paint(); });
+    pv.stream = st;
+    try {
+      if (pctx.state !== 'running') pctx.resume().catch(() => {});
+      const src = pctx.createMediaStreamSource(st), all = pctx.createAnalyser();
+      all.fftSize = 1024;
+      src.connect(all); // rien vers les haut-parleurs : pas de larsen
+      pv.nodes.push(src, all);
+      pv.all = all;
+      if (r.raw && voies >= 2) {
+        const sp = pctx.createChannelSplitter(2);
+        src.connect(sp);
+        pv.nodes.push(sp);
+        for (let k = 0; k < 2; k++) { const a = pctx.createAnalyser(); a.fftSize = 1024; sp.connect(a, k); pv.nodes.push(a); pv.ch.push(a); }
+      }
+    } catch {}
+    etat = ''; // elle s'ouvre : ni occupée ni débranchée
+    paint(); // le nombre d'entrées est connu : le potard peut apparaître
+  }
+
+  // La phrase du bas, seulement pendant une prise et seulement si Valider changerait quelque chose.
+  const note = () => {
+    const el = sheet.querySelector('#inputNote');
+    const t = relanceVoulue(cfg, devs) ? (recElapsed() <= 30 ? 'La prise va repartir de zéro.' : 'La prise continue. Le changement servira à la prochaine.') : '';
+    if (el.textContent !== t) { el.textContent = t; el.hidden = !t; }
+  };
+  const paint = () => {
+    if (!alive()) return;
+    const sh = sheet, { pads, cur } = inputPads(devs, cfg), ok = named();
+    sh.querySelector('#inputName').textContent = cur ? cur.nom : cfg.id ? (cfg.nom ? nomAffiche(cfg.nom) : 'Entrée choisie') : nomAffiche(INPUT.sysLabel || '');
+    const et = cur && cur.ghost && ok ? 'débranchée' : etat;
+    const etEl = sh.querySelector('#inputEtat');
+    etEl.textContent = et;
+    etEl.hidden = !et;
+    // Le potard des entrées de la carte : seulement quand il y en a vraiment deux.
+    const box = sh.querySelector('#inputCanal'), dial = box.querySelector('.amp-dial');
+    const show = !!cur && !cur.ghost && !cur.integ && inputRaw(cfg) && INPUT.voies.get(keyOf(resolveInput(cfg, devs).id)) >= 2;
+    if (show && box.hidden) {
+      // Il apparaît en tournant jusqu'à sa position, comme à l'allumage.
+      dial.style.setProperty('--a', '-140deg');
+      box.hidden = false;
+      void dial.offsetWidth;
+      setTimeout(() => dial.style.setProperty('--a', canalAngle(cfg.canal)), 40);
+    } else {
+      box.hidden = !show;
+      dial.style.setProperty('--a', canalAngle(cfg.canal));
+    }
+    box.querySelectorAll('[data-canal]').forEach(b => { const on = b.dataset.canal === (cfg.canal || '12'); b.classList.toggle('on', on); b.setAttribute('aria-checked', on); });
+    // La toile : les entrées quand il y a un choix, ou le micro à autoriser.
+    let html = '';
+    if (!ok) {
+      html = refused ? `<p class="amp-allow">${refused}</p>`
+        : navigator.mediaDevices?.getUserMedia ? `<div class="pads"><button class="pad wide" data-allow>${ico(AMP_MIC)}<b>Autoriser le micro</b><small>pour voir ce qui est branché</small></button></div>` : '';
+    } else if (pads.length > 1) {
+      html = `<div class="pads">${pads.map(p => `<button class="pad${p === cur ? ' on' : ''}${p.ghost ? ' ghost' : ''}" data-dev="${esc(p.id)}" aria-pressed="${p === cur}">${ico(p.branche || p.ghost ? AMP_JACK : AMP_MIC)}<b>${esc(p.nom)}</b>${p.note ? `<small>${esc(p.note)}</small>` : ''}</button>`).join('')}</div>`;
+    }
+    sh.querySelector('#inputGrille').hidden = !html;
+    if (html !== lastHtml) {
+      lastHtml = html;
+      const body = sh.querySelector('#inputBody');
+      body.innerHTML = html;
+      body.querySelectorAll('[data-dev]').forEach(b => { b.onclick = () => {
+        const p = inputPads(devs, cfg).pads.find(q => q.id === b.dataset.dev);
+        if (!p || p.ghost) return;
+        touched = true;
+        // Le pad du système, quand on suit déjà le système, c'est la même entrée : rien ne change, la prise ne repart pas.
+        const d = deduit(p), a = resolveInput(d, devs), c = resolveInput(cfg, devs);
+        const meme = (a.id === c.id || (p.system && !cfg.id)) && a.raw === c.raw;
+        if (!meme) { cfg = { ...d, canal: '12' }; etat = ''; }
+        paint();
+      }; });
+      const allow = body.querySelector('[data-allow]');
+      if (allow) allow.onclick = async () => {
+        try { (await navigator.mediaDevices.getUserMedia({ audio: audioConstraints('', false) })).getTracks().forEach(t => t.stop()); }
+        catch (e) { refused = e.name === 'NotFoundError' ? 'Aucun micro trouvé.' : 'Micro refusé : autorise-le dans les réglages du navigateur.'; paint(); return; }
+        await list();
+        adopt();
+        paint();
+      };
+    }
+    note();
+    startPreview();
+  };
+
+  // Les voyants, à chaque image : la façade montre ce qui sera enregistré ; les petits, chaque entrée de la carte.
+  const buf = new Uint8Array(1024), lit = {}, wrote = {};
+  const level = a => {
+    if (!a) return [0, false];
+    try { a.getByteTimeDomainData(buf); } catch { return [0, false]; }
+    let s = 0, pk = 0;
+    for (const v of buf) { const x = (v - 128) / 128; s += x * x; if (Math.abs(x) > pk) pk = Math.abs(x); }
+    return [Math.min(1, Math.sqrt(s / buf.length) * 4), pk >= .98];
+  };
+  // Montée immédiate, descente douce jusqu'au noir complet ; on n'écrit dans la page que ce qui se voit.
+  const setLed = (el, k, v) => {
+    let s = Math.max(v, (lit[k] || 0) * .85);
+    if (s < .02) s = 0;
+    lit[k] = s;
+    if (wrote[k] !== undefined && Math.abs(s - wrote[k]) < .01) return;
+    wrote[k] = s;
+    if (el) el.style.setProperty('--lvl', Math.sqrt(s).toFixed(2)); // racine : un son moyen se voit déjà bien
+  };
+  let satUntil = 0;
+  const frame = () => {
+    if (!alive()) { cleanup(); return; }
+    let src = null;
+    if (pv.all) src = pv;
+    else if (REC.recorder && REC.input) {
+      // La prise en cours, si c'est bien l'entrée affichée (une carte débranchée, remplacée par le micro, n'entend rien).
+      const r = resolveInput(cfg, devs), { cur } = inputPads(devs, cfg);
+      if (!(cfg.id && (!cur || cur.ghost)) && r.id === (REC.input.id || '') && r.raw === !!REC.input.raw) { recTap(); src = { all: REC.analyser, ch: rt.ch }; }
+    } else if (rt.rec || rt.nodes.length) dropTap();
+    let m = [0, false], e1 = [0, false], e2 = [0, false];
+    if (src && src.ch.length === 2) {
+      e1 = level(src.ch[0]); e2 = level(src.ch[1]);
+      const c = cfg.canal || '12';
+      m = c === '1' ? e1 : c === '2' ? e2 : [Math.max(e1[0], e2[0]), e1[1] || e2[1]];
+    } else if (src) m = level(src.all);
+    const now = performance.now();
+    if (m[1]) satUntil = now + 400;
+    const led = sheet.querySelector('.amp-in .amp-led');
+    setLed(led, 'm', m[0]);
+    setLed(sheet.querySelector('[data-vu="1"]'), '1', e1[0]);
+    setLed(sheet.querySelector('[data-vu="2"]'), '2', e2[0]);
+    led.classList.toggle('sat', now < satUntil);
+    if (++frames % 10 === 0) note();
+    raf = requestAnimationFrame(frame);
+  };
+  // Une entrée branchée ou débranchée pendant que le panneau est ouvert : la liste suit. Tant qu'on n'a rien touché,
+  // le réglage se relit (une carte devenue l'entrée du système est prise) ; l'écoute rouvre l'entrée du système si elle a changé,
+  // et retente après un débranchement ou un échec.
+  const refresh = async () => {
+    const was = sys;
+    await list();
+    if (ended) return;
+    if (!touched) { cfg = loadInput(); adopt(); }
+    if (!cfg.id && sys !== was) stopPreview();
+    if (!pv.stream) pv.key = '';
+    paint();
+  };
+  const onVis = () => { if (document.hidden) stopPreview(); else paint(); };
+  function cleanup() {
+    if (ended) return;
+    ended = true;
+    cancelAnimationFrame(raf);
+    stopPreview();
+    dropTap();
+    try { pctx && pctx.close(); } catch {}
+    navigator.mediaDevices?.removeEventListener?.('devicechange', refresh);
+    document.removeEventListener('visibilitychange', onVis);
+    if (inputPreviewStop === stopPreview) inputPreviewStop = null;
+  }
+
   const ok = await openSheet(`<div class="amp amp-in amp-off">
     <div class="amp-head">
-      <div class="amp-name"><p class="pads-kind"><i class="amp-led"></i>Entrée</p><h2 id="inputName"></h2></div>
-      <div class="amp-controls">${ampSel('son')}${ampSel('canal')}</div>
+      <h2 class="amp-title"><i class="amp-led" aria-hidden="true"></i><span id="inputName"></span></h2>
+      <p class="amp-etat" id="inputEtat" hidden></p>
+      <div class="amp-controls" id="inputCanal" hidden>
+        <div class="amp-sel" role="radiogroup" aria-label="Entrée de la carte">
+          <div class="amp-sel-pos">${CANAL.map(([v, l]) => `<button role="radio" aria-checked="false" data-canal="${v}">${v === '12' ? '' : `<i class="amp-vu" data-vu="${v}" aria-hidden="true"></i>`}${l}</button>`).join('')}</div>
+          <button class="amp-dial" data-dial tabindex="-1" aria-hidden="true"></button>
+        </div>
+      </div>
     </div>
-    <div class="amp-grille"><div id="inputBody"></div><p class="amp-badge" aria-hidden="true">Rec.</p></div>
-    <p class="amp-note" id="inputNote"></p>
+    <div class="amp-grille" id="inputGrille"><div id="inputBody"></div><p class="amp-badge" aria-hidden="true">Rec.</p></div>
+    <p class="amp-note" id="inputNote" hidden></p>
     <div class="row amp-foot"><button class="btn" data-x>Annuler</button><button class="btn primary" data-ok>Valider</button></div>
   </div>`,
   (sh, close) => {
-    sh.querySelectorAll('[data-son]').forEach(b => { b.onclick = () => { cfg = { ...cfg, son: b.dataset.son }; paint(sh); }; });
-    sh.querySelectorAll('[data-canal]').forEach(b => { b.onclick = () => { cfg = { ...cfg, canal: b.dataset.canal }; paint(sh); }; });
+    sheet = sh;
+    amp = sh.querySelector('.amp-in');
+    sh.querySelectorAll('[data-canal]').forEach(b => { b.onclick = () => { touched = true; cfg = { ...cfg, canal: b.dataset.canal }; paint(); }; });
     // Le potard lui-même passe à la position suivante.
-    sh.querySelectorAll('[data-dial]').forEach(d => { d.onclick = () => {
-      const name = d.dataset.dial, opts = AMP_SEL[name].opts;
-      const i = opts.findIndex(o => o[0] === (name === 'son' ? son() : cfg.canal || '12'));
-      cfg = { ...cfg, [name]: opts[(i + 1) % opts.length][0] };
-      paint(sh);
-    }; });
-    sh.querySelector('[data-x]').onclick = () => close(false);
-    sh.querySelector('[data-ok]').onclick = () => close(true);
-    paint(sh);
-    // L'ampli s'allume : le voyant s'éclaire, les potards tournent jusqu'à leur position.
-    const amp = sh.querySelector('.amp-off');
-    void amp.offsetWidth; // l'état éteint est posé avant de s'allumer, sinon rien ne tourne
+    sh.querySelector('[data-dial]').onclick = () => {
+      touched = true;
+      const i = CANAL.findIndex(o => o[0] === (cfg.canal || '12'));
+      cfg = { ...cfg, canal: CANAL[(i + 1) % CANAL.length][0] };
+      paint();
+    };
+    // L'écoute est coupée avant que le panneau se ferme : la prise qui suit trouve l'entrée libre.
+    sh.querySelector('[data-x]').onclick = () => { cleanup(); close(false); };
+    sh.querySelector('[data-ok]').onclick = () => { cleanup(); close(true); };
+    inputPreviewStop = stopPreview;
+    paint();
+    // L'ampli s'allume : le potard tourne jusqu'à sa position. Le voyant, lui, attend le son.
+    void amp.offsetWidth;
     setTimeout(() => amp.classList.remove('amp-off'), 40);
     // Une carte branchée ou débranchée pendant que le panneau est ouvert : la liste suit.
-    refresh = async () => { devs = await audioInputs(); paint(sh); };
     navigator.mediaDevices?.addEventListener?.('devicechange', refresh);
+    document.addEventListener('visibilitychange', onVis);
+    raf = requestAnimationFrame(frame);
   });
-  if (refresh) navigator.mediaDevices?.removeEventListener?.('devicechange', refresh);
-  if (ok !== true || JSON.stringify(cfg) === before) return;
-  saveInput(cfg);
-  // Pendant une prise, on ne la relance que si ce qui serait enregistré change vraiment : une autre entrée, un autre son, un autre canal.
-  // Valider ce qui était déjà choisi ne coûte pas la prise ; brancher la carte prévue, si.
+  cleanup();
+  if (ok !== true) return;
+  // Le nombre d'entrées vu pour une carte est gardé avec le réglage : le potard est là dès la prochaine fois.
+  const v = INPUT.voies.get(keyOf(resolveInput(cfg, devs).id));
+  cfg = { ...cfg };
+  if (inputRaw(cfg) && v) cfg.voies = v; else delete cfg.voies;
+  if (JSON.stringify(cfg) !== before) saveInput(cfg);
+  // Pendant une prise, on ne la relance que si ce qui serait enregistré change vraiment : une autre entrée, un autre son, une autre entrée de la carte.
+  // Valider ce qui était déjà choisi ne coûte pas la prise ; brancher la carte prévue (prise partie sur le micro), si : la phrase l'avait dit.
   if (REC.recorder && REC.input) {
-    const c = loadInput(), list = await audioInputs();
-    const there = !!c.id && (list.some(d => d.deviceId === c.id) || !list.some(d => d.label));
-    const id = there ? c.id : '', raw = there ? inputRaw(c) : (c.id ? false : inputRaw(c)), now = REC.input;
-    if (REC.recorder && REC.input === now && (id !== (now.id || '') || raw !== !!now.raw || (raw && (c.canal || '12') !== (now.canal || '12')))) relaunchRecording();
+    const now = REC.input, fresh = await audioInputs();
+    if (REC.recorder && REC.input === now && relanceVoulue(cfg, fresh)) relaunchRecording();
   }
 }
 
@@ -3522,7 +3768,8 @@ async function restartRecording() {
 function syncInputUI() {
   const b = $('#recInput');
   if (!REC.input) return;
-  b.textContent = `${REC.input.label || 'Micro'}${REC.input.raw ? ' · instrument' : ''}`;
+  const i = REC.input;
+  b.textContent = `${nomAffiche(i.full)}${i.raw && i.voies >= 2 && i.canal && i.canal !== '12' ? ` · entrée ${i.canal}` : ''}`;
 }
 
 // Un seul départ à la fois : pendant qu'une prise s'ouvre (pistes, micro, carte), Espace ou un bouton n'en lancent pas une deuxième.
@@ -3559,6 +3806,7 @@ async function startRecordingNow(targetIdeaId, overId, again) {
     return;
   }
   let stream, input;
+  if (inputPreviewStop) inputPreviewStop();
   try {
     ({ stream, input } = await openInput());
   } catch (e) {
@@ -3619,7 +3867,7 @@ async function startRecordingNow(targetIdeaId, overId, again) {
   syncPauseUI();
   if (REC.metro && !REC.pausedAt) startMetro(REC.bpm);
   $('#recOverlay').hidden = false;
-  if (again && !again.quiet) toast(`Prise reprise avec « ${input.label || 'Micro'} »`);
+  if (again && !again.quiet) toast(`Prise reprise avec « ${nomAffiche(input.full)} »`);
   tickRecording();
 }
 
@@ -4906,6 +5154,9 @@ async function openSettings() {
     themeBtns.forEach(b => { b.onclick = () => { setTheme(b.dataset.themePick); showTheme(); }; });
     showTheme();
     sh.querySelector('#inputOpen').onclick = () => { close(); openInputSheet(); };
+    // Le nom de l'entrée du système n'est connu qu'après avoir regardé la liste : la ligne se corrige si besoin.
+    const inputLine = sh.querySelector('#inputOpen small');
+    audioInputs().then(l => { learnSys(l); if (inputLine.isConnected) inputLine.textContent = describeInput(loadInput()); });
     const seg = sh.querySelectorAll('[data-mode]');
     const show = () => {
       seg.forEach(b => b.classList.toggle('on', b.dataset.mode === mode));
