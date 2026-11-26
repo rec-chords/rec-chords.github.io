@@ -3251,6 +3251,7 @@ const INPUT = { voies: new Map() }; // nombre de canaux vu pour chaque entrée, 
 const loadInput = () => { try { return JSON.parse(localStorage.getItem('fredon.entree')) || {}; } catch { return {}; } };
 const saveInput = v => { try { localStorage.setItem('fredon.entree', JSON.stringify(v)); } catch {} };
 const inputName = label => (label || '').replace(/^(par défaut|défaut|default|communications)\s*-\s*/i, '').replace(/\s*\([0-9a-f]{4}:[0-9a-f]{4}\)$/i, '').trim();
+const ALIAS = id => id === 'default' || id === 'communications'; // les noms que donne le système à « son » micro, pas des appareils
 const inputRaw = cfg => (cfg.id ? cfg.son !== 'voix' : cfg.son === 'instrument');
 const describeInput = cfg => `${cfg.id ? cfg.nom || 'Entrée choisie' : 'Par défaut'}${inputRaw(cfg) ? ' · instrument' : ''}`;
 async function audioInputs() {
@@ -3272,7 +3273,7 @@ async function openInput() {
     const devs = await audioInputs();
     if (devs.some(d => d.label) && !devs.some(d => d.deviceId === id)) {
       // L'identifiant change parfois (autre port USB) : on retrouve la carte par son nom.
-      const same = cfg.nom && devs.find(d => inputName(d.label) === cfg.nom);
+      const same = cfg.nom && devs.find(d => !ALIAS(d.deviceId) && inputName(d.label) === cfg.nom);
       id = same ? same.deviceId : '';
       if (same) saveInput({ ...cfg, id });
     }
@@ -3289,7 +3290,19 @@ async function openInput() {
     catch (e) { if (e.name === 'NotAllowedError' || e.name === 'SecurityError') throw e; }
   }
   const res = await open('', cfg.id ? false : inputRaw(cfg));
-  if (cfg.id) toast(`« ${cfg.nom || 'Entrée choisie'} » indisponible : micro par défaut`);
+  if (cfg.id) {
+    // Les noms des entrées étaient peut-être cachés (micro pas encore autorisé) : maintenant qu'ils sont là, on cherche la carte par son nom.
+    const devs = await audioInputs(), same = cfg.nom && devs.find(d => !ALIAS(d.deviceId) && d.deviceId !== id && inputName(d.label) === cfg.nom);
+    if (same) {
+      try {
+        const card = await open(same.deviceId, inputRaw(cfg));
+        res.stream.getTracks().forEach(t => t.stop());
+        saveInput({ ...cfg, id: same.deviceId });
+        return card;
+      } catch {}
+    }
+    toast(`« ${cfg.nom || 'Entrée choisie'} » indisponible : micro par défaut`);
+  }
   return res;
 }
 // Une carte à deux entrées donne un son stéréo : la guitare d'un côté (entrée 1 à gauche), rien de l'autre.
@@ -3310,12 +3323,20 @@ async function routeChannels(stream, canal) {
     src.connect(split);
     if (canal !== '2') split.connect(mono, 0);
     if (canal !== '1') split.connect(mono, 1);
+    // Les deux entrées additionnées : une guitare seule sur l'entrée 1 garde tout son niveau ; si les deux portent du son, un limiteur évite la saturation.
+    let out = mono;
+    if (canal !== '1' && canal !== '2') {
+      const lim = ctx.createDynamicsCompressor();
+      lim.threshold.value = -2; lim.knee.value = 0; lim.ratio.value = 20; lim.attack.value = .002; lim.release.value = .12;
+      mono.connect(lim);
+      out = lim;
+    }
     const dest = ctx.createMediaStreamDestination();
     dest.channelCount = 1;
-    mono.connect(dest);
+    out.connect(dest);
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 1024;
-    mono.connect(analyser);
+    out.connect(analyser);
     return { ctx, analyser, stream: dest.stream };
   } catch {
     try { ctx && ctx.close(); } catch {}
@@ -3381,7 +3402,14 @@ async function openInputSheet() {
     navigator.mediaDevices?.addEventListener?.('devicechange', refresh);
   });
   if (refresh) navigator.mediaDevices.removeEventListener('devicechange', refresh);
-  if (REC.recorder && JSON.stringify(loadInput()) !== before) relaunchRecording();
+  // Pendant une prise, on ne la relance que si ce qui serait enregistré change vraiment : une autre entrée, un autre son, un autre canal.
+  // Retoucher ce qui était déjà choisi ne coûte pas la prise ; brancher la carte prévue, si.
+  if (REC.recorder && REC.input && JSON.stringify(loadInput()) !== before) {
+    const c = loadInput(), list = await audioInputs();
+    const there = !!c.id && (list.some(d => d.deviceId === c.id) || !list.some(d => d.label));
+    const id = there ? c.id : '', raw = there ? inputRaw(c) : (c.id ? false : inputRaw(c)), now = REC.input;
+    if (REC.recorder && REC.input === now && (id !== (now.id || '') || raw !== !!now.raw || (raw && (c.canal || '12') !== (now.canal || '12')))) relaunchRecording();
+  }
 }
 
 // Changer d'entrée pendant une prise : au début, on la reprend de zéro avec la nouvelle ; une prise déjà longue continue.
@@ -3397,7 +3425,18 @@ function syncInputUI() {
   b.textContent = `${REC.input.label || 'Micro'}${REC.input.raw ? ' · instrument' : ''}`;
 }
 
+// Un seul départ à la fois : pendant qu'une prise s'ouvre (pistes, micro, carte), Espace ou un bouton n'en lancent pas une deuxième.
+// « Arrêter » ou « annuler » touchés pendant ce temps sont appliqués dès que l'enregistreur tourne.
 async function startRecording(targetIdeaId = null, overId = null, again = null) {
+  if (REC.recorder || REC.starting) return;
+  REC.starting = true;
+  try { await startRecordingNow(targetIdeaId, overId, again); } finally { delete REC.starting; }
+  const abort = REC.abort;
+  delete REC.abort;
+  if (abort && REC.recorder) stopRecording(abort === 'cancel');
+  else if (abort) $('#recOverlay').hidden = true;
+}
+async function startRecordingNow(targetIdeaId, overId, again) {
   if (REC.recorder) return;
   const bail = () => { if (again) $('#recOverlay').hidden = true; };
   // Par-dessus une prise : on prépare ses pistes avant d'ouvrir le micro, pour partir sans attente.
@@ -3415,6 +3454,7 @@ async function startRecording(targetIdeaId = null, overId = null, again = null) 
   }
   const mime = pickMime();
   if (mime === null || !navigator.mediaDevices?.getUserMedia) {
+    bail();
     toast("Ce navigateur ne permet pas d'enregistrer (il faut une page en https).");
     return;
   }
@@ -3426,11 +3466,13 @@ async function startRecording(targetIdeaId = null, overId = null, again = null) 
     toast('Micro inaccessible : autorise le micro pour cette page.');
     return;
   }
-  // En instrument, une carte à deux entrées passe par le moteur audio pour finir au centre (mono connu : rien à faire).
-  const route = input.raw && input.voies !== 1 ? await routeChannels(stream, input.canal) : null;
+  // En instrument, une carte à deux entrées passe par le moteur audio pour finir au centre. Seulement si l'entrée se dit stéréo :
+  // en mono, ou quand le navigateur ne le dit pas (Safari), « entrée 2 » donnerait une prise muette ; on garde alors le son tel quel.
+  const route = input.raw && input.voies >= 2 ? await routeChannels(stream, input.canal) : null;
   const recorder = new MediaRecorder(route ? route.stream : stream, mime ? { mimeType: mime, audioBitsPerSecond: 96000 } : undefined);
-  Object.assign(REC, { recorder, stream, input, chunks: [], start: Date.now(), target: targetIdeaId, overId, cancelled: false, levels: [] });
-  recorder.ondataavailable = e => { if (e.data && e.data.size) REC.chunks.push(e.data); };
+  const chunks = []; // les morceaux de cette prise-ci, même si une autre a pris sa place dans REC
+  Object.assign(REC, { recorder, stream, input, chunks, start: Date.now(), target: targetIdeaId, overId, cancelled: false, levels: [] });
+  recorder.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
   recorder.onstop = onRecordingStopped;
   // Carte débranchée en pleine prise : on s'arrête là et on garde ce qui est enregistré.
   stream.getAudioTracks().forEach(t => t.addEventListener('ended', () => {
@@ -3516,7 +3558,7 @@ function tickRecording() {
 }
 
 function stopRecording(cancel = false) {
-  if (!REC.recorder) return;
+  if (!REC.recorder) { if (REC.starting) REC.abort = cancel || REC.abort === 'cancel' ? 'cancel' : 'stop'; return; }
   REC.cancelled = cancel;
   REC.duration = (Date.now() - REC.start) / 1000;
   if (REC.recorder.state !== 'inactive') REC.recorder.stop();
@@ -5133,7 +5175,8 @@ function wireUi() {
   document.addEventListener('keydown', e => {
     if (e.code !== 'Space' || sheetClose || STAGE.on || RIDER_ON || document.body.classList.contains('paging') || /INPUT|TEXTAREA/.test(document.activeElement?.tagName)) return;
     e.preventDefault();
-    if (REC.recorder) stopRecording(false); else startRecording(null);
+    // Pendant qu'une prise se relance (écran d'enregistrement ouvert), Espace l'arrête comme le bouton ; sinon il n'en lance pas une deuxième.
+    if (REC.recorder || (REC.starting && !$('#recOverlay').hidden)) stopRecording(false); else startRecording(null);
   });
 
   // Quand on revient sur l'appli, on récupère ce qui a été fait depuis l'autre appareil.
